@@ -20,7 +20,9 @@ flowchart LR
 ```
 
 ---
+<img width="1916" height="909" alt="image" src="https://github.com/user-attachments/assets/6b5398a6-6157-4305-9f4e-c3fdf1fff3c1" />
 
+---
 ## 核心特性
 
 | 能力 | 说明 |
