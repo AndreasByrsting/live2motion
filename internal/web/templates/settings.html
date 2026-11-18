@@ -48,6 +48,29 @@
       </div>
     </section>
 
+    <!-- 输出内容 -->
+    <section class="card p-5">
+      <h2 class="text-sm font-medium text-slate-200">输出内容</h2>
+      <p class="mt-1 text-[0.7rem] text-slate-500">
+        默认只把转换成功的 Motion Photo 写进输出目录，图库里其它照片（普通 HEIC/JPG、没配上对的视频）不会同步过去。
+        打开下面的开关后，输出目录会变成一份<strong class="text-slate-300">完整图库</strong>：
+        转换成功的 Live Photo 只出 JPG（原始 HEIC/MOV 留在源目录，不再复制），
+        其余没有参与转换的文件按源目录结构原样复制一份。这样同步给 Pixel 的文件既完整又不重复。
+      </p>
+      <div class="mt-4 space-y-2.5">
+        <label class="check">
+          <input type="checkbox" name="include_unconverted" {{if .Settings.IncludeUnconverted}}checked{{end}}>
+          <span>
+            <b>同时输出未转换的源文件（完整图库模式）</b>
+            <em>输出目录保留与源目录相同的相对路径；转换成功的双文件不会再被复制，避免同一张实况出现两份</em>
+          </span>
+        </label>
+      </div>
+      <p class="mt-3 text-[0.7rem] text-slate-500">
+        关闭此开关不会删除已经复制出去的文件，需要时请自行清理输出目录。
+      </p>
+    </section>
+
     <!-- 校验与容错 -->
     <section class="card p-5">
       <h2 class="text-sm font-medium text-slate-200">校验与容错</h2>

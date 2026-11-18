@@ -24,7 +24,9 @@
         <span>成功</span><span class="dot bg-emerald-400"></span>
       </div>
       <div class="mt-2 text-2xl font-semibold tabular-nums text-emerald-300">{{.D.Jobs.Success}}</div>
-      <div class="mt-1 text-[0.7rem] text-slate-500">已生成产物 {{.D.Outputs}} 个</div>
+      <div class="mt-1 text-[0.7rem] text-slate-500">
+        已生成产物 {{.D.Outputs}} 个{{if .D.Settings.IncludeUnconverted}} · 原样复制 {{.D.MirrorCount}} 个{{end}}
+      </div>
     </div>
     <div class="card p-4">
       <div class="flex items-center justify-between text-xs text-slate-400">
@@ -144,6 +146,9 @@
       <div>
         <div class="text-slate-500">输出目录</div>
         <div class="mt-1 font-mono text-[0.7rem] text-slate-300 break-all">{{.D.Settings.OutputDir}}</div>
+        <div class="mt-0.5 text-[0.7rem] text-slate-500">
+          {{if .D.Settings.IncludeUnconverted}}完整图库模式：转换产物 + 未转换文件原样复制{{else}}仅输出转换产物{{end}}
+        </div>
       </div>
       <div>
         <div class="text-slate-500">上次扫描</div>

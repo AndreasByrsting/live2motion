@@ -50,6 +50,10 @@ func run() error {
   I2M_JPG_QUALITY     JPG 质量（默认 90）
   I2M_ENABLE_MD5      是否启用 MD5 校验（默认 true）
   I2M_AUTO_SCAN       是否自动持续扫描（默认 true）
+  I2M_OUTPUT_SUFFIX   输出文件名后缀（默认 -motion）
+  I2M_INCLUDE_UNCONVERTED
+                      完整图库模式（默认 false）：把未参与转换的源文件原样复制到输出目录，
+                      保持与源目录相同的相对路径，使同步出去的图库完整且不重复
   I2M_EXIFTOOL        exiftool 可执行文件
   I2M_HEIF_CONVERT    heif-convert 可执行文件
 `)
@@ -151,6 +155,19 @@ func runOnce(ctx context.Context, cfg config.Config, st *store.Store, settings c
 	}
 	fmt.Printf("处理结束：成功 %d，失败 %d，跳过 %d，产物 %d 个\n",
 		d.Jobs.Success, d.Jobs.Failed, d.Jobs.Skipped, d.Outputs)
+
+	// 完整图库模式：队列跑完再镜像一次，这样「转换失败」的文件也会被原样送出，
+	// 输出目录始终是一份完整、不重复的图库。
+	if eng.Settings().IncludeUnconverted {
+		fmt.Println("同步未转换的源文件到输出目录…")
+		stats, merr := eng.MirrorNow(ctx)
+		if merr != nil {
+			fmt.Fprintf(os.Stderr, "警告: 同步未转换文件失败: %v\n", merr)
+		} else {
+			fmt.Printf("同步完成：遍历 %d 个，新复制 %d，更新 %d，跳过 %d，清理副本 %d，失败 %d\n",
+				stats.Seen, stats.Copied, stats.Updated, stats.Skipped, stats.Pruned, stats.Failed)
+		}
+	}
 	return nil
 }
 

@@ -27,6 +27,13 @@ type Settings struct {
 	PreserveOrientation bool     `json:"preserve_orientation"`  // 是否复制原始 EXIF Orientation（默认否，避免二次旋转）
 	VerifyBeforeConvert bool     `json:"verify_before_convert"` // 转换前用 MD5 校验源文件完整性
 
+	// IncludeUnconverted 控制输出目录的「完整度」：
+	//   false（默认）只输出转换成功的 Motion Photo，图库里其它照片不出现；
+	//   true 输出完整图库——转换成功的 Live Photo 只出 JPG（原始 HEIC/MOV 留在源目录），
+	//        其余没有参与转换的文件按源目录结构原样复制一份，
+	//        这样同步给 Pixel 的文件既完整又不重复。
+	IncludeUnconverted bool `json:"include_unconverted"`
+
 	// ---- Webhook 通知 ----
 	WebhookEnabled bool   `json:"webhook_enabled"`
 	WebhookURL     string `json:"webhook_url"`
@@ -61,6 +68,7 @@ func DefaultSettings() Settings {
 		ReconvertOnChange:   true,
 		PreserveOrientation: false,
 		VerifyBeforeConvert: true,
+		IncludeUnconverted:  false,
 
 		WebhookEnabled:   false,
 		WebhookURL:       "",

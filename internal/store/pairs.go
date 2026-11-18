@@ -100,3 +100,48 @@ func (s *Store) CountPairs(ctx context.Context, sourceRoot string) (int64, error
 		sourceRoot, AssetStateMissing, AssetStateMissing).Scan(&n)
 	return n, err
 }
+
+// PairJobState 一组配对及其任务的当前状态。
+// 「完整图库模式」据此判断某个源文件最终会不会被转换：
+// 会转换 → 不能原样复制（否则 Pixel 侧 HEIC + JPG 重复）；
+// 不会转换 → 必须原样复制，否则图库不完整。
+type PairJobState struct {
+	HeicRelPath  string
+	VideoRelPath string
+	Status       string // jobs.status，缺任务时按 pending 处理
+	Stage        string // 区分 dry-run 跳过 与 源文件缺失跳过
+	HeicMissing  bool
+	VideoMissing bool
+}
+
+// ListPairJobStates 列出某源根目录下所有配对的任务状态。
+func (s *Store) ListPairJobStates(ctx context.Context, sourceRoot string) ([]PairJobState, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT p.heic_rel_path, p.video_rel_path, COALESCE(j.status, ?), COALESCE(j.stage, ''),
+		       CASE WHEN h.state=? THEN 1 ELSE 0 END,
+		       CASE WHEN v.state=? THEN 1 ELSE 0 END
+		FROM live_pairs p
+		LEFT JOIN jobs j ON j.pair_id = p.id
+		JOIN live_assets h ON h.id = p.heic_asset_id
+		JOIN live_assets v ON v.id = p.video_asset_id
+		WHERE p.source_root = ?`,
+		JobPending, AssetStateMissing, AssetStateMissing, sourceRoot)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PairJobState
+	for rows.Next() {
+		var st PairJobState
+		var heicMissing, videoMissing int
+		if err := rows.Scan(&st.HeicRelPath, &st.VideoRelPath, &st.Status, &st.Stage,
+			&heicMissing, &videoMissing); err != nil {
+			return nil, err
+		}
+		st.HeicMissing = heicMissing == 1
+		st.VideoMissing = videoMissing == 1
+		out = append(out, st)
+	}
+	return out, rows.Err()
+}

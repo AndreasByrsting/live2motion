@@ -1,7 +1,10 @@
 package store
 
 // schemaVersion 当前数据库结构版本，升级时按 migration 递增。
-const schemaVersion = 1
+// v2（2026-11）：新增 mirror_outputs，记录「未转换文件原样复制」的产物，
+// 清理副本时只删自己复制出来的文件。新增表由 schemaSQL 的 CREATE TABLE IF NOT EXISTS
+// 自动补齐，老库无需手工迁移。
+const schemaVersion = 2
 
 // schemaSQL 建表语句。所有时间字段统一存 Unix 秒（INTEGER）。
 //
@@ -95,6 +98,20 @@ CREATE TABLE IF NOT EXISTS motion_outputs (
     UNIQUE (source_root, rel_path)
 );
 CREATE INDEX IF NOT EXISTS ix_outputs_pair ON motion_outputs(pair_id);
+
+-- 未转换文件的镜像副本：输出目录 = 转换产物 + 这些原样复制的文件。
+-- 记这张表的唯一目的是安全清理：删除时只删自己复制出来的文件，
+-- 绝不碰用户手工放进输出目录的东西。
+CREATE TABLE IF NOT EXISTS mirror_outputs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_root TEXT   NOT NULL,
+    rel_path   TEXT    NOT NULL,
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    mtime_unix INTEGER NOT NULL DEFAULT 0,
+    copied_at  INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE (source_root, rel_path)
+);
 
 -- 运行日志（落库，重启后仍可回看）
 CREATE TABLE IF NOT EXISTS logs (

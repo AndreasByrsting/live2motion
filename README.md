@@ -31,6 +31,7 @@ flowchart LR
 | **并发控制** | 可配置并发数（默认 2），任务队列持久化在 SQLite，改并发数**立即生效**无需重启 |
 | **容错** | 失败指数退避重试（默认 3 次），崩溃后 `running` 任务自动打回队列，全程事务化 |
 | **源目录只读** | 代码层面只以只读方式打开源文件，输出路径做双重越界校验，拒绝写入源目录 |
+| **完整图库模式** | 可选：输出目录 = 转换产物 + 未转换文件的原样副本，目录结构与源目录一致。转换成功的双文件只出 JPG，避免同一张实况在 Pixel 上出现两份 |
 | **Web 面板** | 仪表盘 / 任务列表 / 实时日志 / 设置，htmx 局部刷新 + SSE 实时推送，构建期打进二进制 |
 | **界面** | 玻璃拟态 + 极光背景，按浏览器本地时间（06:00–18:00）自动切换日夜配色，`?theme=light/dark` 可覆盖 |
 | **Webhook** | 任务开始/完成/失败/系统故障可分别开关，同类消息在时间窗口内合并成一条；自动适配钉钉/飞书/企微/Slack/Discord/ntfy/Bark |
@@ -135,10 +136,11 @@ docker run --rm -v immich2motion_data:/data -v "$PWD:/backup" alpine \
 | `I2M_SCAN_INTERVAL_SEC` | `300` | 扫描间隔（秒，最小 10） |
 | `I2M_MAX_RETRIES` | `3` | 失败重试次数 |
 | `I2M_OUTPUT_SUFFIX` | `-motion` | 输出文件名后缀 |
+| `I2M_INCLUDE_UNCONVERTED` | `false` | 完整图库模式：把未参与转换的源文件原样复制到输出目录（见下文） |
 | `I2M_EXIFTOOL` | `exiftool` | exiftool 可执行文件路径 |
 | `I2M_HEIF_CONVERT` | `heif-convert` | heif-convert 可执行文件路径 |
 
-Web 设置页还可以改：输出文件名后缀、HEIC/视频扩展名、深度校验周期、日志保留条数、是否转换前校验源 MD5、是否保留原始 Orientation。
+Web 设置页还可以改：输出文件名后缀、HEIC/视频扩展名、深度校验周期、日志保留条数、是否转换前校验源 MD5、是否保留原始 Orientation、是否开启完整图库模式。
 
 ---
 
@@ -198,6 +200,59 @@ Web 设置页还可以改：输出文件名后缀、HEIC/视频扩展名、深�
 
 > 没有采用新版的 `GContainer:Directory`（`Item:Length` / `Semantic=Motion`）写法：
 > 它要求同时写容器目录，字段更多、兼容性差异更大，而你要求的 `MicroVideo*` 是 Pixel 一代起就在用的格式，Google 相册识别稳定。
+
+---
+
+## 输出内容：两种模式
+
+`/output` 里到底放什么，由 **完整图库模式**（`I2M_INCLUDE_UNCONVERTED`，或设置页「输出内容」）决定。
+
+| | 关闭（默认） | 开启 |
+| --- | --- | --- |
+| 转换成功的 Live Photo | `IMG_0001-motion.jpg` | `IMG_0001-motion.jpg`，原始 HEIC/MOV **不**复制 |
+| 普通照片 / 未配对视频 / 其它文件 | 不输出 | 原样复制，相对路径与源目录一致 |
+| 适用场景 | 只想把实况补到别处 | 想用 `/output` 完全替代 `/source` 做同步 |
+
+### 为什么需要这个开关
+
+Live Photo 在磁盘上是两个文件（HEIC + MOV），转换后是一个 JPG。如果同时把 `/source`
+（原始 HEIC + MOV）和 `/output`（转换后的 JPG）都同步给 Pixel，同一张实况就会以
+「静态照片 + 视频 + 实况照片」几种形态重复出现。
+
+开启后输出目录的形态是：
+
+```
+/output/2024/05/IMG_0001-motion.jpg   ← 由 IMG_0001.HEIC + IMG_0001.MOV 合成，原件留在 /source
+/output/2024/05/IMG_0002.HEIC         ← 普通照片（没有 ContentIdentifier），原样复制
+/output/2024/06/VID_0001.MOV          ← 找不到 HEIC 的孤儿视频，原样复制
+/output/2024/06/IMG_0003.HEIC         ← 转换失败的实况原图，原样复制（至少不丢照片）
+```
+
+路径结构与源目录**完全一致**（同样是 `年/月/文件名`），不会全部混在输出根目录里。
+
+### 哪些文件会被复制
+
+判据只有一条：**它最终会不会被合成成 Motion Photo**。
+
+| 源文件状态 | 处理 |
+| --- | --- |
+| 已转换成功 | 不复制；历史遗留副本会被删除 |
+| 等待 / 正在转换 | 暂不复制（转换成功后原件不再需要，先复制等于制造一次重复窗口） |
+| 转换失败、缺一边、普通照片、其它任意扩展名 | 原样复制 |
+| 隐藏文件、`~syncthing~*.tmp`、`*.tmp` / `*.part` 等临时文件 | 跳过 |
+| 源目录里已删除 / 改名的文件 | 对应副本一并删除 |
+
+复制同样是「同目录临时文件 → 原子 rename」，并保留源文件 mtime，Syncthing 看不到半成品。
+增量策略与扫描器一致（mtime + 大小），未变化的文件不重复读盘。
+
+触发时机：每次扫描结束后、开启开关时、转换成功时（清理该组原件副本），
+以及 `--scan-once` 队列跑完后各一次。
+
+> 清理只认 `mirror_outputs` 表里的记录——程序绝不会删自己没复制过的文件，
+> 你手工放进 `/output` 的东西是安全的。
+
+> 关闭这个开关**不会**删除已经复制出去的文件：那些文件已经和转换产物混在一起，
+> 交给用户自己判断更稳妥。
 
 ---
 
@@ -376,6 +431,18 @@ CREATE TABLE motion_outputs (
     UNIQUE (source_root, rel_path)
 );
 
+-- 未转换文件的镜像副本（完整图库模式）
+CREATE TABLE mirror_outputs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_root TEXT    NOT NULL,
+    rel_path    TEXT    NOT NULL,      -- 与源目录一致的相对路径
+    size_bytes  INTEGER NOT NULL DEFAULT 0,
+    mtime_unix  INTEGER NOT NULL DEFAULT 0,
+    copied_at   INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL,
+    UNIQUE (source_root, rel_path)     -- 清理时只删有记录的文件
+);
+
 -- 运行日志 / 扫描批次 / 键值设置 / bit rot 事件
 CREATE TABLE logs             (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL,
                                level TEXT NOT NULL, scope TEXT, message TEXT NOT NULL);
@@ -420,6 +487,8 @@ immich2motion/
 │   ├── convert/                     # 转换流水线
 │   │   ├── pipeline.go              # HEIC→JPG、XMP 迭代写入、拼接、校验、原子落盘
 │   │   └── tools.go                 # 外部命令执行与错误封装
+│   ├── mirror/                      # 完整图库模式
+│   │   └── mirror.go                # 未转换文件原样复制 + 遗留副本清理（只删自己复制过的文件）
 │   ├── engine/                      # 调度
 │   │   ├── engine.go                # 扫描循环、worker 池、状态机、统计
 │   │   ├── sem.go                   # 可动态调整上限的信号量（并发数热生效）
@@ -512,6 +581,10 @@ go test -tags integration ./... -v
 - **权限**：容器默认以 root 运行以便写入宿主挂载目录。需要降权时在 compose 里加 `user: "1000:1000"`，并确保 `/output`、`/data` 对该 UID 可写。
 - **healthcheck**：不依赖镜像里的 curl/wget，用二进制自身的 `--health-check` 子命令探测 `/healthz`。
 - **源目录不自动创建**：见上文「目录行为」——宁可报错，也不要用一个空目录掩盖挂载错误。
+- **完整图库模式是"最终态同步"，不是双向同步**：它只负责把源目录里该出现的文件复制过去、把
+  不再需要的副本删掉。你在 `/output` 里额外放的东西不会被清理，关掉开关也不会回收已复制的文件。
+  首次开启会一次性复制整个图库（除已转换的实况原件），大图库上这一步会跑得比较久，
+  期间转换仍照常进行。
 
 ### Syncthing 侧建议
 

@@ -1,0 +1,126 @@
+package engine_test
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/immich2motion/immich2motion/internal/config"
+	"github.com/immich2motion/immich2motion/internal/engine"
+	"github.com/immich2motion/immich2motion/internal/store"
+)
+
+// 完整图库模式下，输出目录里哪些文件出现/消失，完全由「这组实况会不会被转换」决定：
+//   - 转换失败 → 原件原样送出（图库不能缺照片）
+//   - 转换成功 → 原件副本必须删掉（否则 Pixel 上 HEIC + JPG 重复）
+func TestMirrorPlanFollowsJobStatus(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "source")
+	out := filepath.Join(dir, "output")
+
+	write := func(rel, body string) {
+		p := filepath.Join(src, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("a/IMG_0001.HEIC", "heic")
+	write("a/IMG_0001.MOV", "mov")
+	write("a/IMG_0002.HEIC", "plain")
+
+	st, err := store.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+
+	newAsset := func(rel, kind, cid string) *store.Asset {
+		p := filepath.Join(src, filepath.FromSlash(rel))
+		fi, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &store.Asset{
+			SourceRoot: src, RelPath: rel, Kind: kind,
+			SizeBytes: fi.Size(), MtimeUnix: fi.ModTime().Unix(),
+			State: store.AssetStateOK, LastScanID: 1,
+		}
+	}
+	heic := newAsset("a/IMG_0001.HEIC", store.KindHEIC, "UUID-1")
+	video := newAsset("a/IMG_0001.MOV", store.KindVideo, "UUID-1")
+	plain := newAsset("a/IMG_0002.HEIC", store.KindHEIC, "")
+	if _, err := st.UpsertAssets(ctx, []*store.Asset{heic, video, plain}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BulkSetContentID(ctx, []store.ContentIDUpdate{
+		{ID: heic.ID, ContentID: "UUID-1", State: store.AssetStateOK},
+		{ID: video.ID, ContentID: "UUID-1", State: store.AssetStateOK},
+		{ID: plain.ID, State: store.AssetStateNoCID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pairID, _, _, err := st.UpsertPair(ctx, &store.Pair{
+		SourceRoot: src, ContentID: "UUID-1",
+		HeicAssetID: heic.ID, VideoAssetID: video.ID,
+		HeicRelPath: heic.RelPath, VideoRelPath: video.RelPath,
+		HeicMtime: heic.MtimeUnix, VideoMtime: video.MtimeUnix,
+		HeicSize: heic.SizeBytes, VideoSize: video.SizeBytes,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobID, _, err := st.EnsureJob(ctx, pairID, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	settings := config.DefaultSettings()
+	settings.SourceDir = src
+	settings.OutputDir = out
+	settings.IncludeUnconverted = true
+	settings.AutoScan = false
+	eng := engine.New(config.Config{DataDir: dir, LogLevel: "error", ExifBin: "missing", HeifBin: "missing"}, st, settings)
+
+	// 1) 转换失败：三个文件都应被原样送出
+	if err := st.FailJobPermanent(ctx, jobID, "模拟转换失败"); err != nil {
+		t.Fatal(err)
+	}
+	stats, err := eng.MirrorNow(ctx)
+	if err != nil {
+		t.Fatalf("镜像失败: %v", err)
+	}
+	if stats.Copied != 3 {
+		t.Fatalf("转换失败时三个文件都应复制，实际 %+v", stats)
+	}
+	for _, rel := range []string{"a/IMG_0001.HEIC", "a/IMG_0001.MOV", "a/IMG_0002.HEIC"} {
+		if _, err := os.Stat(filepath.Join(out, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("%s 应存在于输出目录", rel)
+		}
+	}
+
+	// 2) 转换成功：原件副本必须消失，普通照片保留
+	if err := st.CompleteJob(ctx, jobID); err != nil {
+		t.Fatal(err)
+	}
+	stats, err = eng.MirrorNow(ctx)
+	if err != nil {
+		t.Fatalf("镜像失败: %v", err)
+	}
+	if stats.Pruned != 2 {
+		t.Fatalf("转换成功后应清理 2 个原件副本，实际 %+v", stats)
+	}
+	for _, rel := range []string{"a/IMG_0001.HEIC", "a/IMG_0001.MOV"} {
+		if _, err := os.Stat(filepath.Join(out, filepath.FromSlash(rel))); !os.IsNotExist(err) {
+			t.Fatalf("%s 已合成进 JPG，副本不应残留（err=%v）", rel, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(out, "a", "IMG_0002.HEIC")); err != nil {
+		t.Fatalf("普通照片应保留: %v", err)
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"github.com/immich2motion/immich2motion/internal/config"
 	"github.com/immich2motion/immich2motion/internal/convert"
 	"github.com/immich2motion/immich2motion/internal/library"
+	"github.com/immich2motion/immich2motion/internal/mirror"
 	"github.com/immich2motion/immich2motion/internal/store"
 	"github.com/immich2motion/immich2motion/internal/webhook"
 )
@@ -37,6 +38,7 @@ type Dashboard struct {
 	PairsTotal    int64               `json:"pairs_total"`
 	PairsUnpaired store.UnpairedCount `json:"pairs_unpaired"`
 	Outputs       int64               `json:"outputs"`
+	MirrorCount   int64               `json:"mirror_count"`
 	LastScan      *store.ScanRun      `json:"last_scan"`
 	Running       []ProgressEvent     `json:"running"`
 	Settings      config.Settings     `json:"settings"`
@@ -61,6 +63,7 @@ type Engine struct {
 	scanner  *library.Scanner
 	pipeline *convert.Pipeline
 	notifier *webhook.Notifier
+	mirrorer *mirror.Syncer
 
 	settingsMu sync.RWMutex
 	settings   config.Settings
@@ -77,6 +80,7 @@ type Engine struct {
 	paused    atomic.Bool
 	dryRun    atomic.Bool
 	forceDeep atomic.Bool
+	mirroring atomic.Bool // 镜像同步单飞：同一时刻只允许一次，避免并发复制同一批文件
 
 	// 环境自检结果与「能否转换」闸门
 	healthMu   sync.RWMutex
@@ -106,6 +110,7 @@ func New(cfg config.Config, st *store.Store, settings config.Settings) *Engine {
 		current:  make(map[int64]ProgressEvent),
 	}
 	e.scanner = library.NewScanner(st, cfg.ExifBin, e)
+	e.mirrorer = mirror.New(st, e)
 	e.notifier = webhook.New(settings, func(level, format string, args ...any) {
 		e.logf(level, "webhook", format, args...)
 	})
@@ -237,6 +242,16 @@ func (e *Engine) runScan(ctx context.Context, trigger string) {
 	e.wakeAll()
 	e.bus.Publish(Event{Type: EventScan, Data: map[string]any{"state": "done"}})
 	e.publishStats()
+
+	// 完整图库模式：扫描完成后把「不会参与转换」的源文件原样复制到输出目录。
+	// 放在扫描结果已落库之后，才能准确判断哪些配对已经转换成功、哪些永远不会转换。
+	// worker 已经先被唤醒，转换与复制并行进行，互不等待。
+	if st.IncludeUnconverted {
+		// 镜像可能很慢（首次要复制整个图库），先把「扫描中」放掉：
+		// 状态栏要说实话，手动触发的扫描也照常入队，等这轮复制结束就执行。
+		e.scanning.Store(false)
+		e.runMirror(ctx, trigger)
+	}
 }
 
 // workerLoop 常驻 worker：先抢并发名额，再原子领取任务。
@@ -370,6 +385,18 @@ func (e *Engine) runJob(ctx context.Context, job *store.JobView) {
 		e.Error("convert", "更新任务状态失败: %v", err)
 	}
 
+	// 完整图库模式：转换成功后，源目录里的 HEIC/MOV 已经合成进这一个 JPG。
+	// 如果之前因为配对失败/未配对把它们复制到了输出目录，这里必须清掉，
+	// 否则 Pixel 侧会同时收到「原件」和「实况 JPG」，又变成重复。
+	if st.IncludeUnconverted {
+		if n, perr := e.mirrorer.PruneSources(ctx, st.SourceDir, st.OutputDir,
+			[]string{pair.HeicRelPath, pair.VideoRelPath}); perr != nil {
+			e.Warn("mirror", "清理源文件副本失败 %s: %v", pair.HeicRelPath, perr)
+		} else if n > 0 {
+			e.Info("mirror", "已清理 %d 个源文件副本（已合成进 %s）", n, res.RelPath)
+		}
+	}
+
 	e.thr.add(res.SizeBytes)
 	e.Info("convert", "完成 %s（%.1f MB，耗时 %s）",
 		res.RelPath, float64(res.SizeBytes)/(1024*1024), time.Since(began).Round(time.Millisecond))
@@ -485,13 +512,19 @@ func (e *Engine) UpdateSettings(ctx context.Context, s config.Settings) error {
 	if e.notifier != nil {
 		e.notifier.Update(s)
 	}
-	e.Info("settings", "设置已更新：并发 %d，质量 %d，MD5 %v，扫描间隔 %ds，自动扫描 %v",
-		s.Workers, s.JPGQuality, s.EnableMD5, s.ScanIntervalSec, s.AutoScan)
+	e.Info("settings", "设置已更新：并发 %d，质量 %d，MD5 %v，扫描间隔 %ds，自动扫描 %v，完整图库 %v",
+		s.Workers, s.JPGQuality, s.EnableMD5, s.ScanIntervalSec, s.AutoScan, s.IncludeUnconverted)
 
 	// 目录可能刚被创建/修正，重新自检一次并唤醒 worker
 	e.refreshHealth(ctx)
 	e.wakeAll()
 	e.publishStats()
+
+	// 刚打开「完整图库模式」：立刻补齐输出目录，不用等下一个扫描周期
+	if s.IncludeUnconverted && !prev.IncludeUnconverted {
+		e.Info("mirror", "已开启完整图库模式，开始把未转换的源文件复制到输出目录")
+		e.TriggerMirror("enable")
+	}
 	return nil
 }
 
@@ -577,6 +610,127 @@ func (e *Engine) Wake() { e.wakeAll() }
 // RunQueue 立即尝试执行队列（不等下一个扫描周期）。
 func (e *Engine) RunQueue() { e.wakeAll() }
 
+// ---------- 完整图库模式（未转换文件镜像） ----------
+
+// MirrorNow 同步执行一次「未转换文件」镜像，返回统计。
+// 仅当设置里打开「完整图库模式」时才真正执行；未打开直接返回零值。
+func (e *Engine) MirrorNow(ctx context.Context) (mirror.Stats, error) {
+	st := e.Settings()
+	if !st.IncludeUnconverted {
+		return mirror.Stats{}, nil
+	}
+	if err := st.Validate(); err != nil {
+		return mirror.Stats{}, err
+	}
+	if !e.mirroring.CompareAndSwap(false, true) {
+		return mirror.Stats{}, fmt.Errorf("已有镜像同步在进行中")
+	}
+	defer e.mirroring.Store(false)
+
+	exclude, err := e.mirrorPlan(ctx, st)
+	if err != nil {
+		return mirror.Stats{}, err
+	}
+	return e.mirrorer.Run(ctx, mirror.Options{
+		SourceDir: st.SourceDir,
+		OutputDir: st.OutputDir,
+		Exclude:   exclude,
+	})
+}
+
+// runMirror 执行一次镜像并输出统计日志。失败只记日志，不影响扫描与转换。
+func (e *Engine) runMirror(ctx context.Context, trigger string) {
+	if !e.Settings().IncludeUnconverted || e.dryRun.Load() {
+		return
+	}
+	began := time.Now()
+	stats, err := e.MirrorNow(ctx)
+	if err != nil {
+		if ctx.Err() != nil {
+			return // 进程退出中，不算错误
+		}
+		e.Error("mirror", "同步未转换文件失败（%s）: %v", trigger, err)
+		return
+	}
+	e.Info("mirror", "未转换文件同步完成（%s）：遍历 %d 个，新复制 %d、更新 %d、跳过 %d、清理副本 %d、失败 %d，写入 %s，耗时 %s",
+		trigger, stats.Seen, stats.Copied, stats.Updated, stats.Skipped, stats.Pruned, stats.Failed,
+		humanSize(stats.Bytes), time.Since(began).Round(time.Millisecond))
+	e.publishStats()
+}
+
+// TriggerMirror 异步触发一次镜像同步。开启「完整图库模式」后立即补齐输出目录，
+// 不用等到下一个扫描周期。
+func (e *Engine) TriggerMirror(trigger string) {
+	ctx := e.ctx
+	if ctx == nil || ctx.Err() != nil {
+		return
+	}
+	go e.runMirror(ctx, trigger)
+}
+
+// mirrorPlan 构建「不镜像」的源文件集合（相对路径 → 是否顺带清理旧副本）。
+//
+// 判据只有一条：这个源文件最终会不会被合成成 Motion Photo。
+//   - 已转换成功      → 不复制，并清理历史副本（原件已经进了 JPG）
+//   - 等待/正在转换    → 不复制（复制了等转换完成又得删，等于白白制造一次重复窗口）
+//   - 转换失败/缺一边  → 复制（这组永远不会产出 Motion Photo，不复制图库就不完整）
+//   - 因 dry-run 跳过  → 不复制（dry-run 不应该动输出目录）
+func (e *Engine) mirrorPlan(ctx context.Context, st config.Settings) (map[string]bool, error) {
+	states, err := e.st.ListPairJobStates(ctx, st.SourceDir)
+	if err != nil {
+		return nil, fmt.Errorf("读取配对任务状态失败: %w", err)
+	}
+
+	plan := make(map[string]bool, len(states)*2)
+	put := func(rel string, prune bool) {
+		if rel == "" {
+			return
+		}
+		if cur, ok := plan[rel]; ok && cur {
+			return // 已经标记为「转换成功」，清理优先于任何其它状态
+		}
+		plan[rel] = prune
+	}
+
+	for _, s := range states {
+		// 配对一侧的源文件已经消失 → 这组再也转换不了，存在的一侧应当原样送出
+		if s.HeicMissing || s.VideoMissing {
+			continue
+		}
+		switch s.Status {
+		case store.JobSuccess:
+			put(s.HeicRelPath, true)
+			put(s.VideoRelPath, true)
+		case store.JobPending, store.JobRunning:
+			put(s.HeicRelPath, false)
+			put(s.VideoRelPath, false)
+		case store.JobSkipped:
+			if s.Stage == "dry-run" {
+				put(s.HeicRelPath, false)
+				put(s.VideoRelPath, false)
+			}
+			// stage=source-missing：源文件不在，下一轮扫描会重新判定
+		}
+		// store.JobFailed：不排除，按「未转换」原样复制
+	}
+	return plan, nil
+}
+
+// humanSize 把字节数格式化成易读单位，仅用于日志。
+func humanSize(n int64) string {
+	if n < 1024 {
+		return fmt.Sprintf("%d B", n)
+	}
+	units := []string{"KB", "MB", "GB", "TB", "PB"}
+	v := float64(n)
+	i := -1
+	for v >= 1024 && i < len(units)-1 {
+		v /= 1024
+		i++
+	}
+	return fmt.Sprintf("%.1f %s", v, units[i])
+}
+
 // Dashboard 聚合首页数据。
 func (e *Engine) Dashboard(ctx context.Context) (Dashboard, error) {
 	st := e.Settings()
@@ -603,6 +757,9 @@ func (e *Engine) Dashboard(ctx context.Context) (Dashboard, error) {
 	}
 	if n, err := e.st.CountOutputs(ctx, st.SourceDir); err == nil {
 		d.Outputs = n
+	}
+	if n, err := e.st.CountMirrors(ctx, st.SourceDir); err == nil {
+		d.MirrorCount = n
 	}
 	if ls, err := e.st.LastScan(ctx); err == nil {
 		d.LastScan = ls

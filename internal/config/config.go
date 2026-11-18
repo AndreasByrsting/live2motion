@@ -76,6 +76,9 @@ func NewSettingsFromEnv() Settings {
 	if v := env("I2M_OUTPUT_SUFFIX", ""); v != "" {
 		s.OutputSuffix = v
 	}
+	if v, ok := envBool("I2M_INCLUDE_UNCONVERTED"); ok {
+		s.IncludeUnconverted = v
+	}
 	s.Normalize()
 	return s
 }

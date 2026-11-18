@@ -33,7 +33,9 @@ var skipDirNames = map[string]struct{}{
 	"lost+found":  {},
 }
 
-func shouldSkipDir(name string) bool {
+// ShouldSkipDir 判断目录名是否应跳过：隐藏目录、群晖缩略图、回收站、Syncthing 元数据等。
+// 扫描与「完整图库模式」的镜像复制共用同一套规则，保证两边看到的文件集合一致。
+func ShouldSkipDir(name string) bool {
 	if name == "" || name == "." || name == ".." {
 		return false
 	}
@@ -42,6 +44,27 @@ func shouldSkipDir(name string) bool {
 	}
 	_, ok := skipDirNames[name]
 	return ok
+}
+
+// ShouldSkipFileName 判断文件名是否应跳过：隐藏文件、Syncthing/编辑器临时文件。
+// 这些文件不属于图库内容，复制过去只会给同步端添乱。
+func ShouldSkipFileName(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return true
+	}
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
+	lower := strings.ToLower(name)
+	if strings.Contains(lower, "~syncthing~") {
+		return true
+	}
+	for _, suf := range []string{".tmp", ".part", ".partial", ".swp", ".crdownload"} {
+		if strings.HasSuffix(lower, suf) {
+			return true
+		}
+	}
+	return false
 }
 
 // Scanner 负责递归扫描源目录、读取 ContentIdentifier、增量维护 MD5 并完成配对。
@@ -238,7 +261,7 @@ func (s *Scanner) collect(ctx context.Context, root string, scanID int64, opt Sc
 			return nil
 		}
 		if d.IsDir() {
-			if p != root && shouldSkipDir(d.Name()) {
+			if p != root && ShouldSkipDir(d.Name()) {
 				return fs.SkipDir
 			}
 			return nil

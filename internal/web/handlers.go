@@ -242,6 +242,7 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	next.ReconvertOnChange = r.FormValue("reconvert_on_change") != ""
 	next.PreserveOrientation = r.FormValue("preserve_orientation") != ""
 	next.VerifyBeforeConvert = r.FormValue("verify_before_convert") != ""
+	next.IncludeUnconverted = r.FormValue("include_unconverted") != ""
 	if v := strings.TrimSpace(r.FormValue("heic_exts")); v != "" {
 		next.HeicExts = splitExts(v)
 	}

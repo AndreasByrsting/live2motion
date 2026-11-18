@@ -123,13 +123,29 @@ func TestBuildPairsDeterministicOrder(t *testing.T) {
 func TestShouldSkipDir(t *testing.T) {
 	skip := []string{"@eaDir", "#recycle", ".stversions", ".Trash", "lost+found"}
 	for _, name := range skip {
-		if !shouldSkipDir(name) {
+		if !ShouldSkipDir(name) {
 			t.Errorf("%q 应被跳过", name)
 		}
 	}
 	keep := []string{"2024", "photos", "Immich", "upload"}
 	for _, name := range keep {
-		if shouldSkipDir(name) {
+		if ShouldSkipDir(name) {
+			t.Errorf("%q 不应被跳过", name)
+		}
+	}
+}
+
+// 镜像复制与扫描共用这套规则：临时文件不能进输出目录，否则 Syncthing 会把半成品同步出去。
+func TestShouldSkipFileName(t *testing.T) {
+	skip := []string{".DS_Store", ".i2m-1234.tmp", "~syncthing~IMG_1.tmp", "photo.jpg.tmp", "x.partial"}
+	for _, name := range skip {
+		if !ShouldSkipFileName(name) {
+			t.Errorf("%q 应被跳过", name)
+		}
+	}
+	keep := []string{"IMG_0001.HEIC", "IMG_0001.MOV", "photo.jpg", "IMG_0002.AAE", "DSC_0001.DNG"}
+	for _, name := range keep {
+		if ShouldSkipFileName(name) {
 			t.Errorf("%q 不应被跳过", name)
 		}
 	}
