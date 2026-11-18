@@ -1,0 +1,387 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================================
+   主题变量
+   颜色以 "R G B" 三元组存储，配合 Tailwind 的 <alpha-value> 才能支持
+   bg-slate-900/40 这类透明度修饰。日间配色把同一变量取相反值，
+   让「950=背景、200=文字」的相对关系在两套主题里都成立，
+   模板因此完全不需要感知主题。
+   ========================================================================== */
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --c-slate-950: 7 10 18;
+  --c-slate-900: 15 22 36;
+  --c-slate-800: 32 43 61;
+  --c-slate-700: 51 65 85;
+  --c-slate-600: 94 108 128;
+  --c-slate-500: 120 135 155;
+  --c-slate-400: 152 167 186;
+  --c-slate-300: 203 213 225;
+  --c-slate-200: 232 238 246;
+
+  --c-emerald-300: 110 231 183;
+  --c-emerald-400: 52 211 153;
+  --c-emerald-500: 16 185 129;
+  --c-rose-300: 253 164 175;
+  --c-rose-400: 251 113 133;
+  --c-rose-500: 244 63 94;
+  --c-amber-300: 252 211 77;
+  --c-amber-400: 251 191 36;
+  --c-amber-500: 245 158 11;
+  --c-sky-300: 125 211 252;
+  --c-sky-400: 56 189 248;
+  --c-sky-500: 14 165 233;
+
+  /* 玻璃 */
+  --glass-tint: 255 255 255;
+  --glass-alpha: 0.062;
+  --glass-border: 255 255 255 / 0.14;
+  --glass-inner: 0.09;
+  --glass-shadow: 0.62;
+  --glass-blur: 22px;
+
+  /* 背景光斑与网格 */
+  --glow-alpha: 0.3;
+  --glow-1: 56 189 248;
+  --glow-2: 139 92 246;
+  --glow-3: 16 185 129;
+  --grid-line: 255 255 255 / 0.032;
+
+  --scroll-thumb: 255 255 255 / 0.14;
+  --scroll-thumb-hover: 255 255 255 / 0.24;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+
+  --c-slate-950: 240 244 250;
+  --c-slate-900: 255 255 255;
+  --c-slate-800: 203 213 225;
+  --c-slate-700: 178 191 205;
+  --c-slate-600: 122 136 155;
+  --c-slate-500: 92 107 127;
+  --c-slate-400: 71 85 105;
+  --c-slate-300: 45 58 76;
+  --c-slate-200: 15 23 42;
+
+  --c-emerald-300: 4 120 87;
+  --c-emerald-400: 5 150 105;
+  --c-emerald-500: 16 185 129;
+  --c-rose-300: 190 18 60;
+  --c-rose-400: 225 29 72;
+  --c-rose-500: 244 63 94;
+  --c-amber-300: 146 64 14;
+  --c-amber-400: 180 83 9;
+  --c-amber-500: 217 119 6;
+  --c-sky-300: 3 105 161;
+  --c-sky-400: 2 132 199;
+  --c-sky-500: 14 165 233;
+
+  --glass-tint: 255 255 255;
+  --glass-alpha: 0.66;
+  --glass-border: 15 23 42 / 0.10;
+  --glass-inner: 0.95;
+  --glass-shadow: 0.12;
+  --glass-blur: 20px;
+
+  --glow-alpha: 0.55;
+  --glow-1: 147 197 253;
+  --glow-2: 196 181 253;
+  --glow-3: 167 243 208;
+  --grid-line: 15 23 42 / 0.045;
+
+  --scroll-thumb: 15 23 42 / 0.16;
+  --scroll-thumb-hover: 15 23 42 / 0.28;
+}
+
+@layer base {
+  /* 整体放大到 110%：实测这个比例最舒服 */
+  html {
+    font-size: 110%;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: rgb(var(--c-slate-950));
+    color: rgb(var(--c-slate-300));
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    transition: background-color 0.35s ease, color 0.35s ease;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--scroll-thumb);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--scroll-thumb-hover);
+  }
+  ::selection {
+    background: rgb(var(--c-emerald-400) / 0.3);
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* ==========================================================================
+   背景：极光光斑 + 细网格，纯 CSS，不加载图片
+   ========================================================================== */
+.bg-aurora {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(52rem 34rem at 10% -10%, rgb(var(--glow-1) / var(--glow-alpha)), transparent 62%),
+    radial-gradient(46rem 30rem at 92% 2%, rgb(var(--glow-2) / calc(var(--glow-alpha) * 0.9)), transparent 60%),
+    radial-gradient(48rem 36rem at 46% 112%, rgb(var(--glow-3) / calc(var(--glow-alpha) * 0.85)), transparent 64%);
+  filter: blur(6px) saturate(120%);
+}
+
+.bg-grid {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgb(var(--grid-line)) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(var(--grid-line)) 1px, transparent 1px);
+  background-size: 48px 48px;
+  -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 35%, transparent 82%);
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 35%, transparent 82%);
+}
+
+@layer components {
+  /* ---------- 玻璃容器 ---------- */
+  .card {
+    background: rgb(var(--glass-tint) / var(--glass-alpha));
+    backdrop-filter: blur(var(--glass-blur)) saturate(170%);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(170%);
+    border: 1px solid rgb(var(--glass-border));
+    border-radius: 0.875rem;
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / var(--glass-inner)),
+      0 16px 40px -24px rgb(0 0 0 / var(--glass-shadow));
+  }
+
+  /* 表格这类大面积区域用更实的底，避免文字压在花哨背景上 */
+  .card-solid {
+    background: rgb(var(--glass-tint) / calc(var(--glass-alpha) * 1.6));
+    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+    border: 1px solid rgb(var(--glass-border));
+    border-radius: 0.875rem;
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / var(--glass-inner)),
+      0 16px 40px -24px rgb(0 0 0 / var(--glass-shadow));
+  }
+
+  /* ---------- 侧边栏 / 顶栏 ---------- */
+  .sidebar {
+    background: rgb(var(--glass-tint) / calc(var(--glass-alpha) * 1.15));
+    backdrop-filter: blur(26px) saturate(170%);
+    -webkit-backdrop-filter: blur(26px) saturate(170%);
+    border-right: 1px solid rgb(var(--glass-border));
+  }
+
+  .topbar {
+    background: rgb(var(--glass-tint) / calc(var(--glass-alpha) * 0.9));
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border-bottom: 1px solid rgb(var(--glass-border));
+  }
+
+  /* ---------- 导航 ---------- */
+  .nav-item {
+    @apply relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-400;
+  }
+  .nav-item:hover {
+    background: rgb(var(--glass-tint) / calc(var(--glass-alpha) * 2));
+    color: rgb(var(--c-slate-200));
+  }
+  .nav-item-active {
+    background: rgb(var(--c-emerald-400) / 0.1);
+    color: rgb(var(--c-emerald-300));
+    box-shadow: inset 0 0 0 1px rgb(var(--c-emerald-400) / 0.22);
+  }
+  .nav-item-active::before {
+    content: '';
+    position: absolute;
+    left: -0.7rem;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 1.25rem;
+    width: 3px;
+    border-radius: 999px;
+    background: rgb(var(--c-emerald-400));
+    box-shadow: 0 0 12px rgb(var(--c-emerald-400) / 0.8);
+  }
+  .nav-icon {
+    @apply h-4 w-4 shrink-0;
+  }
+
+  /* ---------- 状态点 ---------- */
+  .dot {
+    @apply inline-block h-1.5 w-1.5 rounded-full;
+  }
+
+  /* ---------- 徽章 ---------- */
+  .badge {
+    @apply inline-flex items-center rounded-md px-2 py-0.5 text-[0.7rem] font-medium;
+  }
+  .badge-pending {
+    @apply bg-amber-500/10 text-amber-300 ring-1 ring-inset ring-amber-500/30;
+  }
+  .badge-running {
+    @apply bg-sky-500/[0.12] text-sky-300 ring-1 ring-inset ring-sky-500/30;
+  }
+  .badge-success {
+    @apply bg-emerald-500/[0.12] text-emerald-300 ring-1 ring-inset ring-emerald-500/30;
+  }
+  .badge-failed {
+    @apply bg-rose-500/[0.12] text-rose-300 ring-1 ring-inset ring-rose-500/30;
+  }
+  .badge-skip {
+    @apply bg-slate-500/10 text-slate-400 ring-1 ring-inset ring-slate-500/25;
+  }
+
+  /* ---------- 按钮 ---------- */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all duration-150;
+  }
+  .btn-primary {
+    background: rgb(var(--c-emerald-500) / 0.16);
+    border-color: rgb(var(--c-emerald-400) / 0.38);
+    color: rgb(var(--c-emerald-300));
+    box-shadow: 0 8px 20px -14px rgb(var(--c-emerald-400) / 0.7);
+  }
+  .btn-primary:hover {
+    background: rgb(var(--c-emerald-500) / 0.26);
+  }
+  .btn-ghost {
+    background: rgb(var(--glass-tint) / calc(var(--glass-alpha) * 1.6));
+    border-color: rgb(var(--glass-border));
+    color: rgb(var(--c-slate-300));
+  }
+  .btn-ghost:hover {
+    background: rgb(var(--glass-tint) / calc(var(--glass-alpha) * 2.6));
+    color: rgb(var(--c-slate-200));
+  }
+  .btn-warn {
+    background: rgb(var(--c-amber-500) / 0.16);
+    border-color: rgb(var(--c-amber-400) / 0.4);
+    color: rgb(var(--c-amber-300));
+  }
+  .btn-warn:hover {
+    background: rgb(var(--c-amber-500) / 0.26);
+  }
+  .btn-mini {
+    @apply px-2 py-1 text-[0.7rem];
+  }
+
+  /* ---------- 表格 ---------- */
+  .th {
+    @apply px-3 py-2.5 text-left text-[0.7rem] font-medium uppercase tracking-wide;
+  }
+  .td {
+    @apply px-3 py-2.5 align-middle;
+  }
+
+  /* ---------- 表单 ---------- */
+  .input {
+    @apply rounded-lg px-2.5 py-1.5 text-xs text-slate-200 outline-none;
+    background: rgb(var(--glass-tint) / calc(var(--glass-alpha) * 2.2));
+    border: 1px solid rgb(var(--glass-border));
+  }
+  .input:focus {
+    border-color: rgb(var(--c-emerald-400) / 0.55);
+    box-shadow: 0 0 0 3px rgb(var(--c-emerald-400) / 0.12);
+  }
+  .lbl {
+    @apply text-[0.7rem] font-medium text-slate-400;
+  }
+  .hint {
+    @apply mt-1 block text-[0.7rem] text-slate-500;
+  }
+
+  .check {
+    @apply flex cursor-pointer items-start gap-2.5 rounded-lg px-3 py-2.5;
+    background: rgb(var(--glass-tint) / calc(var(--glass-alpha) * 0.8));
+    border: 1px solid rgb(var(--glass-border));
+  }
+  .check:hover {
+    border-color: rgb(var(--c-emerald-400) / 0.28);
+  }
+
+  /* ---------- 分段选择 ---------- */
+  .seg {
+    @apply px-3 py-1.5 text-slate-400;
+  }
+  .seg:hover {
+    background: rgb(var(--glass-tint) / calc(var(--glass-alpha) * 2));
+  }
+  .seg-active {
+    background: rgb(var(--c-emerald-400) / 0.14);
+    color: rgb(var(--c-emerald-300));
+  }
+
+  /* ---------- 提示 ---------- */
+  .toast {
+    @apply rounded-lg px-3.5 py-2 text-xs shadow-lg;
+    backdrop-filter: blur(18px) saturate(160%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    border: 1px solid rgb(var(--glass-border));
+  }
+  .toast-ok {
+    background: rgb(var(--c-emerald-500) / 0.16);
+    border-color: rgb(var(--c-emerald-400) / 0.4);
+    color: rgb(var(--c-emerald-300));
+  }
+  .toast-err {
+    background: rgb(var(--c-rose-500) / 0.16);
+    border-color: rgb(var(--c-rose-400) / 0.4);
+    color: rgb(var(--c-rose-300));
+  }
+}
+
+/* 复选框标签 */
+.check b {
+  @apply block text-xs font-medium text-slate-200;
+}
+.check em {
+  @apply mt-0.5 block text-[0.7rem] not-italic text-slate-500;
+}
+.check input[type='checkbox'] {
+  @apply mt-0.5 h-3.5 w-3.5 shrink-0 accent-emerald-500;
+}
+
+/* 悬浮微高光，增加层次但不位移（避免表格抖动） */
+.card:hover,
+.card-solid:hover {
+  border-color: rgb(var(--c-slate-400) / 0.22);
+}
+
+/* 主题切换的轻微过渡 */
+.card,
+.card-solid,
+.sidebar,
+.topbar,
+.nav-item,
+.btn,
+.input,
+.check {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}

@@ -1,0 +1,30 @@
+# 版本控制
+.git
+.gitignore
+.github
+
+# 本地构建产物
+immich2motion
+immich2motion.exe
+dist/
+bin/
+*.exe
+
+# 测试与运行时数据
+data/
+/tmp/
+*.db
+*.db-wal
+*.db-shm
+coverage.out
+
+# 文档与编辑器
+README.md
+*.md
+.vscode/
+.idea/
+.DS_Store
+
+# 前端依赖（Tailwind 由构建阶段独立处理，仓库已含编译产物）
+node_modules/
+web/node_modules/

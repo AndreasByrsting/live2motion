@@ -1,0 +1,88 @@
+# immich2motion 单容器部署示例
+#
+# 三条挂载的职责：
+#   /source   Immich 图库目录，必须只读挂载（:ro）
+#   /output   生成的 Motion Photo 输出目录，交给 Syncthing 同步到 Pixel
+#   /data     SQLite 数据库与持久化数据
+#
+# 首次启动前把下面的宿主路径改成你自己的实际路径。
+
+services:
+  immich2motion:
+    build:
+      context: .
+      args:
+        VERSION: "0.1.0"
+        # true = 构建时重新下载 Tailwind 并编译 CSS；false = 使用仓库内已编译产物
+        REBUILD_CSS: "true"
+    image: immich2motion:0.1.0
+    container_name: immich2motion
+    restart: unless-stopped
+
+    ports:
+      - "8080:8080"
+
+    volumes:
+      # 只读挂载：程序不会（也不允许）修改源图库
+      - /volume1/photo/immich/upload:/source:ro
+      # 输出目录：建议与 Syncthing 的同步目录一致
+      - /volume1/photo/motion:/output
+      # SQLite 放在具名卷里。
+      # 注意：不要用 Windows/macOS 的 bind mount（如 D:\i2m\data:/data）——
+      # Desktop 的 9p/drvfs 对 SQLite WAL 的 mmap 与文件锁支持不完整，
+      # 会出现「容器内已提交、宿主机读到旧快照」，容器被强杀时还可能丢数据。
+      # Linux/NAS 上 bind mount 是安全的，想改成宿主路径就替换下面这行。
+      - immich2motion_data:/data
+
+    environment:
+      TZ: Asia/Shanghai
+      I2M_WEB_ADDR: ":8080"
+      I2M_LOG_LEVEL: info
+      # 以下为首次启动的默认值；之后以 Web 设置页（存在 /data 的数据库里）为准
+      I2M_WORKERS: "2"
+      I2M_JPG_QUALITY: "100"
+      I2M_ENABLE_MD5: "true"
+      I2M_AUTO_SCAN: "true"
+      I2M_SCAN_INTERVAL_SEC: "300"
+      I2M_MAX_RETRIES: "3"
+      I2M_OUTPUT_SUFFIX: "-motion"
+
+    # 容器内已定义 HEALTHCHECK，这里无需重复；如需更宽松可显式覆盖
+    # healthcheck:
+    #   test: ["CMD", "/usr/local/bin/immich2motion", "--health-check"]
+    #   interval: 30s
+    #   timeout: 5s
+    #   retries: 3
+    #   start_period: 25s
+
+    security_opt:
+      - no-new-privileges:true
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  immich2motion_data:
+    name: immich2motion_data
+
+  # ---------------------------------------------------------------------------
+  # 可选：同一台机器上跑 Syncthing，把 /output 同步到 Pixel
+  # 若已有 Syncthing 实例，删掉这一段，改为在现有实例里添加该文件夹即可
+  # ---------------------------------------------------------------------------
+  # syncthing:
+  #   image: syncthing/syncthing:latest
+  #   container_name: syncthing
+  #   restart: unless-stopped
+  #   environment:
+  #     PUID: "1000"
+  #     PGID: "1000"
+  #   volumes:
+  #     - ./syncthing/config:/var/syncthing
+  #     - /volume1/photo/motion:/data/motion
+  #   ports:
+  #     - "8384:8384"
+  #     - "22000:22000/tcp"
+  #     - "22000:22000/udp"

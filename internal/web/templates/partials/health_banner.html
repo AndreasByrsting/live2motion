@@ -1,0 +1,38 @@
+{{define "health_banner"}}
+{{if not .Health.OK}}
+<div id="health-banner" class="rounded-xl border border-rose-500/30 bg-rose-500/[0.06] p-4">
+  <div class="flex items-start justify-between gap-4">
+    <div class="min-w-0">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="text-sm font-medium text-rose-300">环境检查未通过</span>
+        {{if not .Health.Ready}}
+        <span class="badge badge-failed">转换已暂停</span>
+        {{else}}
+        <span class="badge badge-pending">仅影响扫描</span>
+        {{end}}
+      </div>
+
+      <ul class="mt-3 space-y-2.5">
+        {{range .Health.Problems}}
+        <li class="border-l-2 border-rose-500/40 pl-2.5">
+          <div class="text-[0.7rem] text-slate-200">
+            <span class="font-medium">{{.Name}}</span>
+            <span class="text-slate-400"> · </span>
+            <span class="text-slate-300">{{.Detail}}</span>
+          </div>
+          {{if .Hint}}<div class="mt-1 text-[0.7rem] leading-relaxed text-slate-500">{{.Hint}}</div>{{end}}
+        </li>
+        {{end}}
+      </ul>
+    </div>
+
+    <button class="btn btn-ghost shrink-0"
+            hx-post="/api/actions/recheck"
+            hx-target="#health-banner"
+            hx-swap="outerHTML">重新检测</button>
+  </div>
+</div>
+{{else}}
+<div id="health-banner"></div>
+{{end}}
+{{end}}

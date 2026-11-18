@@ -1,0 +1,106 @@
+{{define "layout"}}<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · immich2motion</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2334d399'/%3E%3Cpath d='M9 22V10l7 7 7-7v12' stroke='%23021016' stroke-width='2.5' fill='none' stroke-linejoin='round'/%3E%3C/svg%3E">
+<script>
+/* 主题：默认按浏览器本地时间（06:00–18:00 日间，其余夜间），
+   URL 上带 ?theme=light / ?theme=dark 可强制覆盖。
+   必须在样式表之前执行，否则会先闪一下深色。 */
+(function () {
+  try {
+    var forced = null;
+    try { forced = new URLSearchParams(location.search).get('theme'); } catch (e) {}
+    var h = new Date().getHours();
+    var t = (forced === 'light' || forced === 'dark') ? forced : ((h >= 6 && h < 18) ? 'light' : 'dark');
+    document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+})();
+</script>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/vendor/htmx.min.js" defer></script>
+<script src="/static/app.js" defer></script>
+</head>
+<body class="antialiased">
+
+<div class="bg-aurora" aria-hidden="true"></div>
+<div class="bg-grid" aria-hidden="true"></div>
+
+<div class="relative z-10 min-h-screen flex">
+
+  <!-- 侧边栏 -->
+  <aside class="sidebar w-64 shrink-0 sticky top-0 h-screen flex flex-col">
+    <div class="px-5 py-5 border-b border-slate-800/60">
+      <div class="flex items-center gap-2.5">
+        <span class="h-9 w-9 rounded-xl bg-gradient-to-br from-emerald-400 to-sky-500 flex items-center justify-center shadow-lg shadow-emerald-500/25">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="#04121b" stroke-width="2.5" stroke-linejoin="round"><path d="M6 18V7l6 6 6-6v11"/></svg>
+        </span>
+        <div class="leading-tight">
+          <div class="text-sm font-semibold tracking-tight">immich2motion</div>
+          <div class="text-[0.7rem] text-slate-500">Live → Motion Photo</div>
+        </div>
+      </div>
+    </div>
+
+    <nav class="flex-1 p-3 space-y-1">
+      <a href="/" class="nav-item {{if eq .Active "dashboard"}}nav-item-active{{end}}">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+        <span>仪表盘</span>
+      </a>
+      <a href="/jobs" class="nav-item {{if eq .Active "jobs"}}nav-item-active{{end}}">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+        <span>任务列表</span>
+      </a>
+      <a href="/logs" class="nav-item {{if eq .Active "logs"}}nav-item-active{{end}}">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4h9l5 5v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M8 13h8M8 17h5"/></svg>
+        <span>日志</span>
+      </a>
+      <a href="/settings" class="nav-item {{if eq .Active "settings"}}nav-item-active{{end}}">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7.5 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3 13.6H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.7 7.5l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10.2 3V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1.3z"/></svg>
+        <span>设置</span>
+      </a>
+    </nav>
+
+    <div class="px-4 py-3 border-t border-slate-800/60 text-[0.7rem] text-slate-500 space-y-1.5">
+      <div class="flex items-center justify-between">
+        <span>版本 {{.Version}}</span>
+        <span id="theme-label" class="text-slate-600"></span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="dot bg-rose-500" id="sse-dot"></span>
+        <span id="sse-text">实时连接中…</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 主区域 -->
+  <main class="flex-1 min-w-0 flex flex-col">
+    <header class="topbar sticky top-0 z-20 h-14 shrink-0 flex items-center justify-between px-6">
+      <h1 class="text-base font-medium tracking-tight">{{.Title}}</h1>
+      <div class="flex items-center gap-2 text-xs">
+        {{if .Health}}
+          {{if not .Health.Ready}}
+          <a href="/" class="badge badge-failed hover:brightness-125" title="环境检查未通过，转换已暂停，点击查看详情">环境异常</a>
+          {{else if not .Health.OK}}
+          <a href="/" class="badge badge-pending hover:brightness-125" title="环境检查未全部通过，可能影响扫描，点击查看详情">扫描受阻</a>
+          {{end}}
+        {{end}}
+        <span id="hdr-paused" class="badge badge-skip hidden">已暂停</span>
+        <span id="hdr-dry" class="badge badge-skip hidden">Dry-Run</span>
+        <span id="hdr-running" class="badge badge-running hidden">转换中</span>
+        <span id="hdr-scan" class="badge badge-pending hidden">扫描中</span>
+      </div>
+    </header>
+    <div class="p-6 flex-1 min-w-0">
+      {{template "content" .}}
+    </div>
+  </main>
+</div>
+
+<div id="toast-wrap" class="fixed top-4 right-4 z-50 space-y-2"></div>
+</body>
+</html>{{end}}

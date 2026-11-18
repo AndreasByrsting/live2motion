@@ -1,0 +1,201 @@
+{{define "content"}}
+<div class="max-w-4xl">
+  {{if .Flash}}<div class="mb-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-xs text-emerald-300">{{.Flash}}</div>{{end}}
+  {{if .FlashErr}}<div class="mb-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs text-rose-300">{{.FlashErr}}</div>{{end}}
+
+  <form hx-post="/api/settings" hx-target="#toast-wrap" hx-swap="innerHTML" class="space-y-4">
+
+    <!-- 目录 -->
+    <section class="card p-5">
+      <h2 class="text-sm font-medium text-slate-200">目录</h2>
+      <p class="mt-1 text-[0.7rem] text-slate-500">源目录必须以只读方式挂载；输出目录不能位于源目录内部。</p>
+      <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <label class="block">
+          <span class="lbl">源目录（Immich 图库，只读）</span>
+          <input name="source_dir" value="{{.Settings.SourceDir}}" class="input w-full mt-1 font-mono text-[0.7rem]" required>
+        </label>
+        <label class="block">
+          <span class="lbl">输出目录（Motion Photo）</span>
+          <input name="output_dir" value="{{.Settings.OutputDir}}" class="input w-full mt-1 font-mono text-[0.7rem]" required>
+        </label>
+      </div>
+    </section>
+
+    <!-- 转换参数 -->
+    <section class="card p-5">
+      <h2 class="text-sm font-medium text-slate-200">转换参数</h2>
+      <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <label class="block">
+          <span class="lbl">并发转换数</span>
+          <input type="number" name="workers" min="1" max="16" value="{{.Settings.Workers}}" class="input w-full mt-1">
+          <span class="hint">默认 2，避免 NAS IO 打满</span>
+        </label>
+        <label class="block">
+          <span class="lbl">JPG 质量（1-100）</span>
+          <input type="number" name="jpg_quality" min="1" max="100" value="{{.Settings.JPGQuality}}" class="input w-full mt-1">
+          <span class="hint">传给 heif-convert 的 -q 参数</span>
+        </label>
+        <label class="block">
+          <span class="lbl">输出文件名后缀</span>
+          <input name="output_suffix" value="{{.Settings.OutputSuffix}}" class="input w-full mt-1 font-mono text-[0.7rem]">
+          <span class="hint">例如 -motion → IMG_0001-motion.jpg</span>
+        </label>
+        <label class="block">
+          <span class="lbl">扫描间隔（秒）</span>
+          <input type="number" name="scan_interval_sec" min="10" value="{{.Settings.ScanIntervalSec}}" class="input w-full mt-1">
+          <span class="hint">自动扫描周期，最小 10 秒</span>
+        </label>
+      </div>
+    </section>
+
+    <!-- 校验与容错 -->
+    <section class="card p-5">
+      <h2 class="text-sm font-medium text-slate-200">校验与容错</h2>
+      <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <label class="block">
+          <span class="lbl">失败重试次数</span>
+          <input type="number" name="max_retries" min="0" max="20" value="{{.Settings.MaxRetries}}" class="input w-full mt-1">
+          <span class="hint">达到上限后标记 failed</span>
+        </label>
+        <label class="block">
+          <span class="lbl">深度 MD5 校验周期（小时）</span>
+          <input type="number" name="deep_verify_hours" min="0" value="{{.Settings.DeepVerifyHours}}" class="input w-full mt-1">
+          <span class="hint">0 表示关闭；用于发现 mtime 未变的静默损坏</span>
+        </label>
+      </div>
+
+      <div class="mt-4 space-y-2.5">
+        <label class="check">
+          <input type="checkbox" name="enable_md5" {{if .Settings.EnableMD5}}checked{{end}}>
+          <span>
+            <b>启用 MD5 校验</b>
+            <em>记录源文件与输出文件指纹，检测 bit rot；不影响配对逻辑</em>
+          </span>
+        </label>
+        <label class="check">
+          <input type="checkbox" name="verify_before_convert" {{if .Settings.VerifyBeforeConvert}}checked{{end}}>
+          <span>
+            <b>转换前校验源文件 MD5</b>
+            <em>发现源文件损坏时拒绝转换并标记失败，避免产出坏图</em>
+          </span>
+        </label>
+        <label class="check">
+          <input type="checkbox" name="reconvert_on_change" {{if .Settings.ReconvertOnChange}}checked{{end}}>
+          <span>
+            <b>源文件变化时自动重转</b>
+            <em>mtime 或大小变化会把已完成任务重新排队</em>
+          </span>
+        </label>
+        <label class="check">
+          <input type="checkbox" name="preserve_orientation" {{if .Settings.PreserveOrientation}}checked{{end}}>
+          <span>
+            <b>保留原始 EXIF Orientation</b>
+            <em>若发现输出照片方向被二次旋转再打开此项</em>
+          </span>
+        </label>
+      </div>
+    </section>
+
+    <!-- 扫描 -->
+    <section class="card p-5">
+      <h2 class="text-sm font-medium text-slate-200">扫描与运行</h2>
+      <div class="mt-4 space-y-2.5">
+        <label class="check">
+          <input type="checkbox" name="auto_scan" {{if .Settings.AutoScan}}checked{{end}}>
+          <span><b>自动后台持续扫描</b><em>按扫描间隔持续发现新增 Live Photo</em></span>
+        </label>
+        <label class="check">
+          <input type="checkbox" name="paused" {{if .Settings.Paused}}checked{{end}}>
+          <span><b>启动后暂停任务</b><em>仅扫描配对，不执行转换</em></span>
+        </label>
+      </div>
+
+      <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <label class="block">
+          <span class="lbl">HEIC 扩展名</span>
+          <input name="heic_exts" value="{{range $i, $e := .Settings.HeicExts}}{{if $i}}, {{end}}{{$e}}{{end}}" class="input w-full mt-1 font-mono text-[0.7rem]">
+        </label>
+        <label class="block">
+          <span class="lbl">视频扩展名</span>
+          <input name="video_exts" value="{{range $i, $e := .Settings.VideoExts}}{{if $i}}, {{end}}{{$e}}{{end}}" class="input w-full mt-1 font-mono text-[0.7rem]">
+          <span class="hint">Immich 可能把 Live Photo 视频存成 .mp4</span>
+        </label>
+        <label class="block">
+          <span class="lbl">日志保留条数</span>
+          <input type="number" name="log_retention" min="100" value="{{.Settings.LogRetention}}" class="input w-full mt-1">
+        </label>
+      </div>
+    </section>
+
+    <!-- 通知 -->
+    <section class="card p-5">
+      <h2 class="text-sm font-medium text-slate-200">通知（Webhook）</h2>
+      <p class="mt-1 text-[0.7rem] text-slate-500">
+        推送地址会按域名自动适配报文格式：钉钉 / 飞书 / 企业微信 / Slack / Discord / ntfy / Bark，
+        其他地址按通用 JSON 发送。
+      </p>
+
+      <div class="mt-4 space-y-4">
+        <label class="block">
+          <span class="lbl">推送地址</span>
+          <input name="webhook_url" value="{{.Settings.WebhookURL}}"
+                 placeholder="https://oapi.dingtalk.com/robot/send?access_token=…"
+                 class="input w-full mt-1 font-mono text-[0.7rem]">
+        </label>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <label class="check">
+            <input type="checkbox" name="webhook_enabled" {{if .Settings.WebhookEnabled}}checked{{end}}>
+            <span><b>启用推送</b><em>总开关，关闭后一条都不发</em></span>
+          </label>
+          <label class="check">
+            <input type="checkbox" name="webhook_on_start" {{if .Settings.WebhookOnStart}}checked{{end}}>
+            <span><b>任务开始</b><em>每次开始转换都推，量大，默认关</em></span>
+          </label>
+          <label class="check">
+            <input type="checkbox" name="webhook_on_success" {{if .Settings.WebhookOnSuccess}}checked{{end}}>
+            <span><b>任务完成</b><em>转换成功时推送</em></span>
+          </label>
+          <label class="check">
+            <input type="checkbox" name="webhook_on_failure" {{if .Settings.WebhookOnFailure}}checked{{end}}>
+            <span><b>任务失败</b><em>重试耗尽或不可恢复时推送</em></span>
+          </label>
+          <label class="check">
+            <input type="checkbox" name="webhook_on_system" {{if .Settings.WebhookOnSystem}}checked{{end}}>
+            <span><b>系统故障</b><em>工具缺失、扫描失败等</em></span>
+          </label>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <label class="block">
+            <span class="lbl">合并窗口（秒）</span>
+            <input type="number" name="webhook_digest_sec" min="0" max="3600"
+                   value="{{.Settings.WebhookDigestSec}}" class="input w-full mt-1">
+            <span class="hint">窗口内同类消息合并成一条：180 秒 = 3 分钟，0 = 不合并立即发送</span>
+          </label>
+          <label class="block">
+            <span class="lbl">合并消息最多列几条</span>
+            <input type="number" name="webhook_max_items" min="1" max="50"
+                   value="{{.Settings.WebhookMaxItems}}" class="input w-full mt-1">
+            <span class="hint">超出部分显示「还有 N 条」</span>
+          </label>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="button" class="btn btn-ghost"
+                  hx-post="/api/actions/webhook-test" hx-target="#toast-wrap" hx-swap="innerHTML">
+            发送测试消息
+          </button>
+          <span class="text-[0.7rem] text-slate-500">测试用的是已保存的配置，改完地址请先点下方保存</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="flex items-center gap-2">
+      <button type="submit" class="btn btn-primary">保存设置</button>
+      <a href="/settings" class="btn btn-ghost">放弃修改</a>
+      <span class="text-[0.7rem] text-slate-500">保存后立即生效，无需重启容器。</span>
+    </div>
+  </form>
+</div>
+{{end}}

@@ -1,0 +1,8 @@
+{{define "content"}}
+<div id="dashboard-body"
+     hx-get="/partials/dashboard-body"
+     hx-trigger="every 5s, refresh"
+     hx-swap="innerHTML">
+  {{template "dashboard_body" .}}
+</div>
+{{end}}

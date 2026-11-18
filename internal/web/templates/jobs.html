@@ -1,0 +1,25 @@
+{{define "content"}}
+<div class="space-y-4">
+
+  <!-- 筛选栏 -->
+  <form class="flex flex-wrap items-center gap-2"
+        hx-get="/partials/jobs"
+        hx-target="#jobs-table"
+        hx-swap="outerHTML"
+        hx-trigger="submit, change from:select, keyup changed delay:400ms from:input[name='q']">
+    <select name="status" class="input w-32">
+      <option value="" {{if eq .Status ""}}selected{{end}}>全部状态</option>
+      <option value="pending" {{if eq .Status "pending"}}selected{{end}}>待处理</option>
+      <option value="running" {{if eq .Status "running"}}selected{{end}}>处理中</option>
+      <option value="success" {{if eq .Status "success"}}selected{{end}}>成功</option>
+      <option value="failed" {{if eq .Status "failed"}}selected{{end}}>失败</option>
+      <option value="skipped" {{if eq .Status "skipped"}}selected{{end}}>已跳过</option>
+    </select>
+    <input type="search" name="q" value="{{.Query}}" placeholder="搜索 UUID / 路径…" class="input flex-1 min-w-[200px]">
+    <button type="submit" class="btn btn-ghost">筛选</button>
+    <span class="text-[0.7rem] text-slate-500">共 {{.JobTotal}} 条</span>
+  </form>
+
+  {{template "jobs_table" .}}
+</div>
+{{end}}

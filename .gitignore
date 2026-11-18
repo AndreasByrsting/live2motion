@@ -1,0 +1,24 @@
+# 构建产物
+/immich2motion
+/immich2motion.exe
+/dist/
+
+# 运行时数据
+/data/
+*.db
+*.db-wal
+*.db-shm
+
+# 前端依赖
+node_modules/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.workbuddy
+
+# 测试产物
+coverage.out
+*.test
