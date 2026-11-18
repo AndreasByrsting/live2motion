@@ -246,3 +246,66 @@ func (s *Store) ListBitrotAssets(ctx context.Context, limit int) ([]Asset, error
 	}
 	return out, rows.Err()
 }
+
+// ListSettledUnpairedAssets 列出「已过观察期、且从未配上对」的源文件相对路径。
+//
+// 这类文件是完整图库模式里唯一允许被原样复制出去的转换类文件：
+// 它们等了足够久也没等到另一半，可以认定不会被合成成 Motion Photo。
+// before 是观察期的时间下界（first_seen_at <= before 才算定型）。
+func (s *Store) ListSettledUnpairedAssets(ctx context.Context, sourceRoot string, before int64) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT a.rel_path FROM live_assets a
+		WHERE a.source_root = ? AND a.first_seen_at <= ? AND a.state <> ?
+		  AND NOT EXISTS (
+		      SELECT 1 FROM live_pairs p
+		      WHERE p.heic_asset_id = a.id OR p.video_asset_id = a.id
+		  )
+		ORDER BY a.rel_path`, sourceRoot, before, AssetStateMissing)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var rel string
+		if err := rows.Scan(&rel); err != nil {
+			return nil, err
+		}
+		out = append(out, rel)
+	}
+	return out, rows.Err()
+}
+
+// ListUnsettledAssetPaths 列出「刚刚出现、且还没有配对」的源文件相对路径。
+//
+// 这是完整图库模式的观察期依据：新到的 HEIC/MOV 可能只是 Live Photo 的一半，
+// 另一半几分钟后才被同步/导入。此时把这一半原样写进输出目录，
+// 等配对成功、转换完成后又得把它删掉——对 Syncthing / Immich 这种
+// 「看到即上传」的下游来说，删掉并不能撤回已经上传的那一份，重复就此产生。
+//
+// 因此这类文件在 first_seen_at + 观察期之前一律不复制，等它定型。
+func (s *Store) ListUnsettledAssetPaths(ctx context.Context, sourceRoot string, since int64) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT a.rel_path FROM live_assets a
+		WHERE a.source_root = ? AND a.first_seen_at >= ? AND a.state <> ?
+		  AND NOT EXISTS (
+		      SELECT 1 FROM live_pairs p
+		      WHERE p.heic_asset_id = a.id OR p.video_asset_id = a.id
+		  )
+		ORDER BY a.rel_path`, sourceRoot, since, AssetStateMissing)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var rel string
+		if err := rows.Scan(&rel); err != nil {
+			return nil, err
+		}
+		out = append(out, rel)
+	}
+	return out, rows.Err()
+}

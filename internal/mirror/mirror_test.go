@@ -83,10 +83,12 @@ func TestRunCopiesUnconvertedKeepingStructure(t *testing.T) {
 	stats, err := syncer.Run(ctx, mirror.Options{
 		SourceDir: src,
 		OutputDir: out,
-		Exclude: map[string]bool{
-			"2024/05/IMG_0001.HEIC": true,
-			"2024/05/IMG_0001.MOV":  true,
+		// 白名单：只有这两张普通照片/孤儿视频被认定为「不会转换」
+		Allow: map[string]struct{}{
+			"2024/05/IMG_0002.HEIC": {},
+			"2024/06/VID_0001.MOV":  {},
 		},
+		ConvertibleExts: map[string]struct{}{".heic": {}, ".heif": {}, ".mov": {}, ".mp4": {}},
 	})
 	if err != nil {
 		t.Fatalf("同步失败: %v", err)
@@ -198,10 +200,10 @@ func TestRunPrunesCopiesAfterConversion(t *testing.T) {
 		t.Fatal("未转换时原件应被复制")
 	}
 
-	// 第二次：转换成功 → 原件副本必须消失
+	// 第二次：转换成功（白名单清空）→ 原件副本必须消失
 	stats, err := syncer.Run(ctx, mirror.Options{
 		SourceDir: src, OutputDir: out,
-		Exclude: map[string]bool{"a/IMG_0001.HEIC": true, "a/IMG_0001.MOV": true},
+		ConvertibleExts: map[string]struct{}{".heic": {}, ".mov": {}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -295,8 +297,8 @@ func TestRunRejectsOutputInsideSource(t *testing.T) {
 	}
 }
 
-// 没有 Exclude 时（全部按未转换处理）所有普通文件都会被复制，路径结构保持不变。
-func TestRunCopiesEverythingWithoutExclude(t *testing.T) {
+// 没有白名单时（ConvertibleExts 为空）所有普通文件都会被复制，路径结构保持不变。
+func TestRunCopiesEverythingWithoutAllowList(t *testing.T) {
 	syncer, _ := newSyncer(t)
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -316,6 +318,46 @@ func TestRunCopiesEverythingWithoutExclude(t *testing.T) {
 	for _, rel := range []string{"2023/12/IMG_1.JPG", "2023/12/IMG_1.MOV", "2024/01/DSC_2.DNG"} {
 		if body := readFile(t, filepath.Join(out, filepath.FromSlash(rel))); body != rel {
 			t.Fatalf("%s 内容不一致", rel)
+		}
+	}
+}
+
+// 白名单之外「会参与转换」的扩展名一律不许落盘，但其它扩展名照常复制。
+// 这条锁死了「输出目录只写终态」：还没定型的 HEIC/MOV 不能先写进去、之后再删。
+func TestRunHoldsConvertibleFilesOutsideAllowList(t *testing.T) {
+	syncer, _ := newSyncer(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	src := filepath.Join(dir, "source")
+	out := filepath.Join(dir, "output")
+
+	writeFile(t, filepath.Join(src, "2024", "05", "IMG_0001.HEIC"), "heic")
+	writeFile(t, filepath.Join(src, "2024", "05", "IMG_0001.MOV"), "mov")
+	writeFile(t, filepath.Join(src, "2024", "05", "IMG_0003.JPG"), "jpg")
+	writeFile(t, filepath.Join(src, "2024", "05", "IMG_0003.AAE"), "<aae/>")
+
+	stats, err := syncer.Run(ctx, mirror.Options{
+		SourceDir:       src,
+		OutputDir:       out,
+		ConvertibleExts: map[string]struct{}{".heic": {}, ".mov": {}},
+	})
+	if err != nil {
+		t.Fatalf("同步失败: %v", err)
+	}
+	if stats.Held != 2 {
+		t.Fatalf("两个待定型的临时文件应被按住，实际 %+v", stats)
+	}
+	if stats.Copied != 2 {
+		t.Fatalf("只应复制非转换类文件，实际 %+v", stats)
+	}
+	for _, rel := range []string{"2024/05/IMG_0001.HEIC", "2024/05/IMG_0001.MOV"} {
+		if exists(filepath.Join(out, filepath.FromSlash(rel))) {
+			t.Fatalf("%s 未定型，不应出现在输出目录", rel)
+		}
+	}
+	for _, rel := range []string{"2024/05/IMG_0003.JPG", "2024/05/IMG_0003.AAE"} {
+		if !exists(filepath.Join(out, filepath.FromSlash(rel))) {
+			t.Fatalf("%s 永远不会参与转换，应原样复制", rel)
 		}
 	}
 }

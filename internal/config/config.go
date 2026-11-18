@@ -79,6 +79,12 @@ func NewSettingsFromEnv() Settings {
 	if v, ok := envBool("I2M_INCLUDE_UNCONVERTED"); ok {
 		s.IncludeUnconverted = v
 	}
+	if v, ok := envInt("I2M_MIRROR_SETTLE_MIN"); ok {
+		s.MirrorSettleMin = v
+	}
+	if v, ok := envBool("I2M_AUTO_THEME"); ok {
+		s.AutoTheme = v
+	}
 	s.Normalize()
 	return s
 }

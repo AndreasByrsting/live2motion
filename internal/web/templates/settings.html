@@ -65,6 +65,16 @@
             <em>输出目录保留与源目录相同的相对路径；转换成功的双文件不会再被复制，避免同一张实况出现两份</em>
           </span>
         </label>
+        <label class="block">
+          <span class="lbl">新文件观察期（分钟）</span>
+          <input type="number" name="mirror_settle_min" min="0" max="1440"
+                 value="{{.Settings.MirrorSettleMin}}" class="input w-full mt-1">
+          <span class="hint">
+            刚到达的 HEIC/MOV 可能只是实况的一半（另一半几分钟后才同步过来），转换失败的配对也可能马上重试。
+            这段时间内不往输出目录写，避免"先写一份原件、之后再删"——删除撤不回已经同步出去的那一份。
+            <b>0 = 不等待</b>（旧行为，重复风险自负）
+          </span>
+        </label>
       </div>
       <p class="mt-3 text-[0.7rem] text-slate-500">
         关闭此开关不会删除已经复制出去的文件，需要时请自行清理输出目录。
@@ -150,12 +160,31 @@
       </div>
     </section>
 
+    <!-- 外观 -->
+    <section class="card p-5">
+      <h2 class="text-sm font-medium text-slate-200">外观</h2>
+      <div class="mt-4 space-y-2.5">
+        <label class="check">
+          <input type="checkbox" name="auto_theme" {{if .Settings.AutoTheme}}checked{{end}}>
+          <span>
+            <b>按时间自动切换日间 / 夜间配色</b>
+            <em>本地时间 06:00–18:00 使用日间配色，其余时间夜间；侧边栏的按钮可临时切换，跨过切换点后自动恢复自动模式</em>
+          </span>
+        </label>
+      </div>
+    </section>
+
     <!-- 通知 -->
     <section class="card p-5">
       <h2 class="text-sm font-medium text-slate-200">通知（Webhook）</h2>
       <p class="mt-1 text-[0.7rem] text-slate-500">
         推送地址会按域名自动适配报文格式：钉钉 / 飞书 / 企业微信 / Slack / Discord / ntfy / Bark，
         其他地址按通用 JSON 发送。
+      </p>
+      <p class="mt-2 text-[0.7rem] text-slate-500">
+        推送以<strong class="text-slate-300">一轮完整处理</strong>为单位：扫描开始推一条，
+        整轮转换结束（队列排空）再推一条汇总——包含文件数、新增配对、成功 / 失败 / 跳过、耗时。
+        定时扫描什么都没发现时不会推送，因此不再需要「合并窗口」。
       </p>
 
       <div class="mt-4 space-y-4">
@@ -173,34 +202,28 @@
           </label>
           <label class="check">
             <input type="checkbox" name="webhook_on_start" {{if .Settings.WebhookOnStart}}checked{{end}}>
-            <span><b>任务开始</b><em>每次开始转换都推，量大，默认关</em></span>
+            <span><b>开始处理</b><em>每轮扫描开始时推一条；定时扫描只在发现新照片时推</em></span>
           </label>
           <label class="check">
             <input type="checkbox" name="webhook_on_success" {{if .Settings.WebhookOnSuccess}}checked{{end}}>
-            <span><b>任务完成</b><em>转换成功时推送</em></span>
+            <span><b>处理完成</b><em>整轮结束推一条汇总，不再逐张推</em></span>
           </label>
           <label class="check">
             <input type="checkbox" name="webhook_on_failure" {{if .Settings.WebhookOnFailure}}checked{{end}}>
-            <span><b>任务失败</b><em>重试耗尽或不可恢复时推送</em></span>
+            <span><b>处理失败</b><em>汇总里标注失败数量并列出明细</em></span>
           </label>
           <label class="check">
             <input type="checkbox" name="webhook_on_system" {{if .Settings.WebhookOnSystem}}checked{{end}}>
-            <span><b>系统故障</b><em>工具缺失、扫描失败等</em></span>
+            <span><b>系统故障</b><em>工具缺失、扫描失败等，立即推送</em></span>
           </label>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label class="block">
-            <span class="lbl">合并窗口（秒）</span>
-            <input type="number" name="webhook_digest_sec" min="0" max="3600"
-                   value="{{.Settings.WebhookDigestSec}}" class="input w-full mt-1">
-            <span class="hint">窗口内同类消息合并成一条：180 秒 = 3 分钟，0 = 不合并立即发送</span>
-          </label>
-          <label class="block">
-            <span class="lbl">合并消息最多列几条</span>
+            <span class="lbl">汇总明细最多列几条</span>
             <input type="number" name="webhook_max_items" min="1" max="50"
                    value="{{.Settings.WebhookMaxItems}}" class="input w-full mt-1">
-            <span class="hint">超出部分显示「还有 N 条」</span>
+            <span class="hint">失败文件清单的上限，超出部分显示「还有 N 条」</span>
           </label>
         </div>
 

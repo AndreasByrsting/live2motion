@@ -110,6 +110,7 @@ type PairJobState struct {
 	VideoRelPath string
 	Status       string // jobs.status，缺任务时按 pending 处理
 	Stage        string // 区分 dry-run 跳过 与 源文件缺失跳过
+	FinishedAt   int64  // 任务最后一次结束时间（失败时用于观察期计时），0 表示没结束过
 	HeicMissing  bool
 	VideoMissing bool
 }
@@ -118,6 +119,7 @@ type PairJobState struct {
 func (s *Store) ListPairJobStates(ctx context.Context, sourceRoot string) ([]PairJobState, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT p.heic_rel_path, p.video_rel_path, COALESCE(j.status, ?), COALESCE(j.stage, ''),
+		       COALESCE(j.finished_at, 0),
 		       CASE WHEN h.state=? THEN 1 ELSE 0 END,
 		       CASE WHEN v.state=? THEN 1 ELSE 0 END
 		FROM live_pairs p
@@ -136,7 +138,7 @@ func (s *Store) ListPairJobStates(ctx context.Context, sourceRoot string) ([]Pai
 		var st PairJobState
 		var heicMissing, videoMissing int
 		if err := rows.Scan(&st.HeicRelPath, &st.VideoRelPath, &st.Status, &st.Stage,
-			&heicMissing, &videoMissing); err != nil {
+			&st.FinishedAt, &heicMissing, &videoMissing); err != nil {
 			return nil, err
 		}
 		st.HeicMissing = heicMissing == 1

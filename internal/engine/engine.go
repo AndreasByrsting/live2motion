@@ -39,12 +39,14 @@ type Dashboard struct {
 	PairsUnpaired store.UnpairedCount `json:"pairs_unpaired"`
 	Outputs       int64               `json:"outputs"`
 	MirrorCount   int64               `json:"mirror_count"`
+	MirrorHeld    int64               `json:"mirror_held"`
 	LastScan      *store.ScanRun      `json:"last_scan"`
 	Running       []ProgressEvent     `json:"running"`
 	Settings      config.Settings     `json:"settings"`
 	Paused        bool                `json:"paused"`
 	DryRun        bool                `json:"dry_run"`
 	Scanning      bool                `json:"scanning"`
+	Scan          ScanStatus          `json:"scan"`
 	UptimeSeconds int64               `json:"uptime_seconds"`
 	SpeedMBps     float64             `json:"speed_mbps"`
 	ETASeconds    int64               `json:"eta_seconds"`
@@ -81,6 +83,12 @@ type Engine struct {
 	dryRun    atomic.Bool
 	forceDeep atomic.Bool
 	mirroring atomic.Bool // 镜像同步单飞：同一时刻只允许一次，避免并发复制同一批文件
+
+	// 扫描实时状态（遍历到第几个文件、正在哪个阶段），供仪表盘展示
+	scanLive scanLiveState
+
+	// 一轮「扫描 → 队列排空」的累计统计与推送节流
+	cycle cycleTracker
 
 	// 环境自检结果与「能否转换」闸门
 	healthMu   sync.RWMutex
@@ -153,6 +161,13 @@ func (e *Engine) Start(parent context.Context, initialScan bool) error {
 			e.workerLoop(e.ctx, id)
 		}(i)
 	}
+
+	// 轮次收尾巡检：队列排空后把本轮扫描结果汇总成一条推送
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		e.cycleLoop(e.ctx)
+	}()
 	return nil
 }
 
@@ -212,13 +227,19 @@ func (e *Engine) runScan(ctx context.Context, trigger string) {
 
 	e.bus.Publish(Event{Type: EventScan, Data: map[string]any{"state": "start", "trigger": trigger}})
 	e.Info("scan", "开始扫描 %s（%s）", st.SourceDir, trigger)
+	e.beginScanLive(trigger)
+	e.beginCycle(trigger)
 
 	res, err := e.scanner.Scan(ctx, library.ScanOptions{
 		SourceRoot:      st.SourceDir,
 		Settings:        st,
 		Trigger:         trigger,
 		ForceDeepVerify: e.forceDeep.Swap(false),
+		Progress:        e.reportScanProgress,
 	})
+	// 扫描本体结束（无论成败）就不再是「扫描中」状态。
+	// 后面的镜像复制可能很久，不能让状态栏一直挂着扫描中的图标。
+	e.finishScanLive()
 	if err != nil {
 		e.Error("scan", "扫描失败: %v", err)
 		e.bus.Publish(Event{Type: EventScan, Data: map[string]any{"state": "error", "error": err.Error()}})
@@ -233,6 +254,7 @@ func (e *Engine) runScan(ctx context.Context, trigger string) {
 	e.Info("scan", "扫描完成：文件 %d（HEIC %d / 视频 %d），配对 %d 组（新增 %d、变化 %d），未配对 %d，告警 %d，耗时 %s",
 		res.FilesSeen, res.HeicSeen, res.VideoSeen, res.PairsTotal, res.PairsNew, res.PairsChanged,
 		res.PairsUnpaired, res.Warnings, res.Duration.Round(time.Millisecond))
+	e.cycleScanDone(res)
 
 	// 顺带清理过期日志，避免 SQLite 无限增长
 	if err := e.st.PruneLogs(ctx, st.LogRetention); err != nil {
@@ -322,6 +344,8 @@ func (e *Engine) runJob(ctx context.Context, job *store.JobView) {
 	if e.dryRun.Load() {
 		if err := e.st.SkipJob(ctx, job.JobID, "dry-run：已确认配对，未执行转换"); err != nil {
 			e.Warn("dry-run", "更新任务状态失败: %v", err)
+		} else {
+			e.cycleJobSkipped()
 		}
 		e.Info("dry-run", "可转换: %s + %s", pair.HeicRelPath, pair.VideoRelPath)
 		e.publishStats()
@@ -333,16 +357,12 @@ func (e *Engine) runJob(ctx context.Context, job *store.JobView) {
 	defer e.clearCurrent(job.JobID)
 
 	e.Info("convert", "开始转换 %s", pair.HeicRelPath)
-	e.notifier.Notify(webhook.Event{
-		Kind:   webhook.KindStart,
-		Title:  pair.HeicRelPath,
-		Detail: "开始转换 " + pair.HeicRelPath,
-	})
 
 	if st.VerifyBeforeConvert && st.EnableMD5 {
 		if err := e.preflightIntegrity(ctx, st, pair); err != nil {
 			e.Error("convert", "拒绝转换 %s: %v", pair.HeicRelPath, err)
 			_ = e.st.FailJobPermanent(ctx, job.JobID, err.Error())
+			e.cycleJobFailed(pair.HeicRelPath, err.Error())
 			e.publishStats()
 			return
 		}
@@ -393,19 +413,18 @@ func (e *Engine) runJob(ctx context.Context, job *store.JobView) {
 			[]string{pair.HeicRelPath, pair.VideoRelPath}); perr != nil {
 			e.Warn("mirror", "清理源文件副本失败 %s: %v", pair.HeicRelPath, perr)
 		} else if n > 0 {
-			e.Info("mirror", "已清理 %d 个源文件副本（已合成进 %s）", n, res.RelPath)
+			// 走到这里说明输出目录里曾经出现过这组原件（失败的配对过了观察期被复制）。
+			// 现在已经合成进 JPG，副本必须撤掉，否则就是重复；但下游可能已经取走，
+			// 所以用 warn 级别提醒，而不是悄悄记一条 info。
+			e.Warn("mirror", "撤回 %d 个已写入输出目录的源文件副本（已合成进 %s）：若同步端已经收到过，请在那里删掉对应的 HEIC/MOV",
+				n, res.RelPath)
 		}
 	}
 
 	e.thr.add(res.SizeBytes)
 	e.Info("convert", "完成 %s（%.1f MB，耗时 %s）",
 		res.RelPath, float64(res.SizeBytes)/(1024*1024), time.Since(began).Round(time.Millisecond))
-	e.notifier.Notify(webhook.Event{
-		Kind:  webhook.KindSuccess,
-		Title: res.RelPath,
-		Detail: fmt.Sprintf("%s（%.1f MB，耗时 %s）",
-			res.RelPath, float64(res.SizeBytes)/(1024*1024), time.Since(began).Round(time.Millisecond)),
-	})
+	e.cycleJobDone()
 	e.publishStats()
 }
 
@@ -419,10 +438,7 @@ func (e *Engine) handleFailure(ctx context.Context, job *store.JobView, pair sto
 	if permanent {
 		_ = e.st.FailJobPermanent(ctx, job.JobID, msg)
 		e.Error("convert", "失败（不重试）%s: %s", pair.HeicRelPath, msg)
-		e.notifier.Notify(webhook.Event{
-			Kind: webhook.KindFailure, Title: pair.HeicRelPath,
-			Detail: "不再重试：" + msg,
-		})
+		e.cycleJobFailed(pair.HeicRelPath, msg)
 		e.publishStats()
 		return
 	}
@@ -433,10 +449,7 @@ func (e *Engine) handleFailure(ctx context.Context, job *store.JobView, pair sto
 	}
 	if final {
 		e.Error("convert", "失败（重试已耗尽）%s: %s", pair.HeicRelPath, msg)
-		e.notifier.Notify(webhook.Event{
-			Kind: webhook.KindFailure, Title: pair.HeicRelPath,
-			Detail: "重试已耗尽：" + msg,
-		})
+		e.cycleJobFailed(pair.HeicRelPath, msg)
 	} else {
 		e.Warn("convert", "失败（稍后重试）%s: %s", pair.HeicRelPath, msg)
 	}
@@ -550,7 +563,7 @@ func (e *Engine) TriggerDeepVerify() bool {
 	return true
 }
 
-// SendTestWebhook 立即推送一条测试消息（不走合并窗口），返回错误供前端提示。
+// SendTestWebhook 立即推送一条测试消息（不经过轮次汇总），返回错误供前端提示。
 func (e *Engine) SendTestWebhook() error {
 	if e.notifier == nil {
 		return fmt.Errorf("通知模块未初始化")
@@ -627,14 +640,15 @@ func (e *Engine) MirrorNow(ctx context.Context) (mirror.Stats, error) {
 	}
 	defer e.mirroring.Store(false)
 
-	exclude, err := e.mirrorPlan(ctx, st)
+	allow, exts, err := e.mirrorAllow(ctx, st)
 	if err != nil {
 		return mirror.Stats{}, err
 	}
 	return e.mirrorer.Run(ctx, mirror.Options{
-		SourceDir: st.SourceDir,
-		OutputDir: st.OutputDir,
-		Exclude:   exclude,
+		SourceDir:       st.SourceDir,
+		OutputDir:       st.OutputDir,
+		Allow:           allow,
+		ConvertibleExts: exts,
 	})
 }
 
@@ -652,9 +666,10 @@ func (e *Engine) runMirror(ctx context.Context, trigger string) {
 		e.Error("mirror", "同步未转换文件失败（%s）: %v", trigger, err)
 		return
 	}
-	e.Info("mirror", "未转换文件同步完成（%s）：遍历 %d 个，新复制 %d、更新 %d、跳过 %d、清理副本 %d、失败 %d，写入 %s，耗时 %s",
-		trigger, stats.Seen, stats.Copied, stats.Updated, stats.Skipped, stats.Pruned, stats.Failed,
+	e.Info("mirror", "未转换文件同步完成（%s）：遍历 %d 个，新复制 %d、更新 %d、跳过 %d、观察中 %d、清理副本 %d、失败 %d，写入 %s，耗时 %s",
+		trigger, stats.Seen, stats.Copied, stats.Updated, stats.Skipped, stats.Held, stats.Pruned, stats.Failed,
 		humanSize(stats.Bytes), time.Since(began).Round(time.Millisecond))
+	e.cycleMirrored(stats.Copied + stats.Updated)
 	e.publishStats()
 }
 
@@ -668,52 +683,83 @@ func (e *Engine) TriggerMirror(trigger string) {
 	go e.runMirror(ctx, trigger)
 }
 
-// mirrorPlan 构建「不镜像」的源文件集合（相对路径 → 是否顺带清理旧副本）。
+// mirrorAllow 计算「允许原样写入输出目录」的源文件白名单。
 //
-// 判据只有一条：这个源文件最终会不会被合成成 Motion Photo。
-//   - 已转换成功      → 不复制，并清理历史副本（原件已经进了 JPG）
-//   - 等待/正在转换    → 不复制（复制了等转换完成又得删，等于白白制造一次重复窗口）
-//   - 转换失败/缺一边  → 复制（这组永远不会产出 Motion Photo，不复制图库就不完整）
-//   - 因 dry-run 跳过  → 不复制（dry-run 不应该动输出目录）
-func (e *Engine) mirrorPlan(ctx context.Context, st config.Settings) (map[string]bool, error) {
+// 输出目录是「只写终态」的：写出去的文件随后被删除，对 Syncthing / Immich
+// 这类看到即上传的下游来说等于白删——它们早已收下那一份。所以这里回答的是
+// 「这个源文件现在就能确定不会被合成成 Motion Photo 吗」，只有答案为是的才放行。
+//
+//   - 已转换成功         → 不放行（原件已经在这一张 JPG 里了）
+//   - 等待 / 正在转换     → 不放行
+//   - 失败但还在观察期     → 不放行（用户很可能修好工具后重试）
+//   - 失败且已过观察期     → 放行（这组短期内不会产出 Motion Photo，不复制图库就不完整）
+//   - 从未配对但已过观察期  → 放行（等了这么久也没等到另一半）
+//   - 刚出现的孤儿文件     → 不放行（可能只是 Live Photo 的一半）
+//   - 一侧源文件已消失     → 放行（这组再也转换不了）
+//
+// 同时返回参与转换的扩展名集合，镜像据此区分「需要白名单」和「永远不会转换」。
+func (e *Engine) mirrorAllow(ctx context.Context, st config.Settings) (map[string]struct{}, map[string]struct{}, error) {
+	now := time.Now().Unix()
+	settle := int64(st.MirrorSettleMin) * 60
+
 	states, err := e.st.ListPairJobStates(ctx, st.SourceDir)
 	if err != nil {
-		return nil, fmt.Errorf("读取配对任务状态失败: %w", err)
+		return nil, nil, fmt.Errorf("读取配对任务状态失败: %w", err)
 	}
 
-	plan := make(map[string]bool, len(states)*2)
-	put := func(rel string, prune bool) {
-		if rel == "" {
-			return
+	allow := make(map[string]struct{}, len(states)*2)
+	put := func(rel string) {
+		if rel != "" {
+			allow[rel] = struct{}{}
 		}
-		if cur, ok := plan[rel]; ok && cur {
-			return // 已经标记为「转换成功」，清理优先于任何其它状态
-		}
-		plan[rel] = prune
 	}
 
 	for _, s := range states {
 		// 配对一侧的源文件已经消失 → 这组再也转换不了，存在的一侧应当原样送出
 		if s.HeicMissing || s.VideoMissing {
+			put(s.HeicRelPath)
+			put(s.VideoRelPath)
 			continue
 		}
-		switch s.Status {
-		case store.JobSuccess:
-			put(s.HeicRelPath, true)
-			put(s.VideoRelPath, true)
-		case store.JobPending, store.JobRunning:
-			put(s.HeicRelPath, false)
-			put(s.VideoRelPath, false)
-		case store.JobSkipped:
-			if s.Stage == "dry-run" {
-				put(s.HeicRelPath, false)
-				put(s.VideoRelPath, false)
-			}
-			// stage=source-missing：源文件不在，下一轮扫描会重新判定
+		// success / pending / running / skipped 一律不放行：要么已经进 JPG，要么还没定型
+		if s.Status != store.JobFailed {
+			continue
 		}
-		// store.JobFailed：不排除，按「未转换」原样复制
+		// 刚失败的配对先按住：用户修好工具重试成功时，
+		// 输出目录里要是已经有 HEIC/MOV，就得再删一次，重复照样发生。
+		if settle > 0 && s.FinishedAt > 0 && now-s.FinishedAt < settle {
+			continue
+		}
+		put(s.HeicRelPath)
+		put(s.VideoRelPath)
 	}
-	return plan, nil
+
+	settled, err := e.st.ListSettledUnpairedAssets(ctx, st.SourceDir, now-settle)
+	if err != nil {
+		return nil, nil, fmt.Errorf("读取未配对文件失败: %w", err)
+	}
+	for _, rel := range settled {
+		put(rel)
+	}
+	return allow, convertibleExts(st), nil
+}
+
+// convertibleExts 把设置里的 HEIC / 视频扩展名合成集合，供镜像判断「这个文件会不会参与转换」。
+func convertibleExts(st config.Settings) map[string]struct{} {
+	out := make(map[string]struct{}, len(st.HeicExts)+len(st.VideoExts))
+	for _, list := range [][]string{st.HeicExts, st.VideoExts} {
+		for _, ext := range list {
+			ext = strings.ToLower(strings.TrimSpace(ext))
+			if ext == "" {
+				continue
+			}
+			if !strings.HasPrefix(ext, ".") {
+				ext = "." + ext
+			}
+			out[ext] = struct{}{}
+		}
+	}
+	return out
 }
 
 // humanSize 把字节数格式化成易读单位，仅用于日志。
@@ -739,6 +785,7 @@ func (e *Engine) Dashboard(ctx context.Context) (Dashboard, error) {
 		Paused:   e.paused.Load(),
 		DryRun:   e.dryRun.Load(),
 		Scanning: e.scanning.Load(),
+		Scan:     e.ScanStatus(),
 		Running:  e.RunningJobs(),
 	}
 	if !e.startedAt.IsZero() {
@@ -760,6 +807,12 @@ func (e *Engine) Dashboard(ctx context.Context) (Dashboard, error) {
 	}
 	if n, err := e.st.CountMirrors(ctx, st.SourceDir); err == nil {
 		d.MirrorCount = n
+	}
+	if st.IncludeUnconverted && st.MirrorSettleMin > 0 {
+		since := time.Now().Unix() - int64(st.MirrorSettleMin)*60
+		if held, err := e.st.ListUnsettledAssetPaths(ctx, st.SourceDir, since); err == nil {
+			d.MirrorHeld = int64(len(held))
+		}
 	}
 	if ls, err := e.st.LastScan(ctx); err == nil {
 		d.LastScan = ls

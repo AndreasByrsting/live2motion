@@ -48,10 +48,13 @@ services:
       I2M_SCAN_INTERVAL_SEC: "300"
       I2M_MAX_RETRIES: "3"
       I2M_OUTPUT_SUFFIX: "-motion"
-      # 完整图库模式：输出目录 = 转换产物 + 未转换文件的原样副本（相对路径与 /source 一致）。
+      # 完整图库模式：输出目录 = 转换产物 + 已定型文件的原样副本（相对路径与 /source 一致）。
       # 打开后转换成功的 Live Photo 只出 JPG，原始 HEIC/MOV 不再复制，避免 Pixel 上重复；
       # 图库里其它照片/视频则原样同步过去。同步目录只挂 /output 时建议开启。
       I2M_INCLUDE_UNCONVERTED: "false"
+      # 镜像观察期（分钟）：新到/刚失败的源文件先不写进输出目录，等定型再决定，
+      # 避免"先写一份原件、转换成功后再删"——删除撤不回已经同步出去的那一份。
+      I2M_MIRROR_SETTLE_MIN: "30"
 
     # 容器内已定义 HEALTHCHECK，这里无需重复；如需更宽松可显式覆盖
     # healthcheck:

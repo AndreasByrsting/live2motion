@@ -4,28 +4,12 @@
 
   var state = { level: 'all', autoscroll: true };
 
-  /* ---------- 主题：按本地时间自动切换 ---------- */
-  function currentTheme() {
-    var forced = null;
-    try { forced = new URLSearchParams(location.search).get('theme'); } catch (e) {}
-    if (forced === 'light' || forced === 'dark') return forced;
-    var h = new Date().getHours();
-    return (h >= 6 && h < 18) ? 'light' : 'dark';
-  }
-
+  /* ---------- 主题 ---------- */
+  // 具体逻辑在 theme.js（<head> 里同步加载，负责首帧配色）。
+  // 这里只保证 DOM 就绪后把图标与按钮状态同步一次。
   function applyTheme() {
-    var t = currentTheme();
-    if (document.documentElement.getAttribute('data-theme') !== t) {
-      document.documentElement.setAttribute('data-theme', t);
-    }
-    var label = document.getElementById('theme-label');
-    if (label) label.textContent = (t === 'light' ? '日间' : '夜间');
-    var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', t === 'light' ? '#f0f4fa' : '#070a12');
+    if (window.i2mTheme) window.i2mTheme.apply();
   }
-
-  // 页面停留期间跨过 06:00 / 18:00 时自动换主题
-  setInterval(applyTheme, 5 * 60 * 1000);
 
   function esc(s) {
     return String(s == null ? '' : s)
@@ -151,13 +135,16 @@
 
   /* ---------- SSE ---------- */
   var dashTimer = null;
-  function refreshDashboard() {
+  // delay 默认 600ms：SSE 事件很密时靠它合并成一次局部刷新。
+  // 扫描进度事件更频繁，调用方传更大的值（1.2s），避免一边扫描一边频繁查库。
+  function refreshDashboard(delay) {
     if (dashTimer) return;
+    var wait = typeof delay === 'number' ? delay : 600;
     dashTimer = setTimeout(function () {
       dashTimer = null;
       var el = document.getElementById('dashboard-body');
       if (el && window.htmx) window.htmx.trigger(el, 'refresh');
-    }, 600);
+    }, wait);
   }
 
   function setSSE(online) {
@@ -183,7 +170,15 @@
       refreshDashboard();
       try { applySnapshot({ running: [JSON.parse(e.data)] }); } catch (_) {}
     });
-    es.addEventListener('scan', function () { refreshDashboard(); });
+    es.addEventListener('scan', function (e) {
+      var st = null;
+      try { st = JSON.parse(e.data); } catch (_) {}
+      // start / progress 表示扫描进行中，done / error 表示结束；
+      // active 字段优先，避免「扫描结束」那一帧因为 state 仍是 progress 而留下徽章。
+      var active = st ? (st.active !== false && (st.state === 'start' || st.state === 'progress')) : false;
+      toggleBadge('hdr-scan', active);
+      refreshDashboard(st && st.state === 'progress' ? 1200 : 0);
+    });
     es.addEventListener('log', function (e) {
       try { appendLog(JSON.parse(e.data)); } catch (_) {}
     });

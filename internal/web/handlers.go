@@ -243,6 +243,10 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	next.PreserveOrientation = r.FormValue("preserve_orientation") != ""
 	next.VerifyBeforeConvert = r.FormValue("verify_before_convert") != ""
 	next.IncludeUnconverted = r.FormValue("include_unconverted") != ""
+	if r.FormValue("mirror_settle_min") != "" {
+		next.MirrorSettleMin = atoiOr(r.FormValue("mirror_settle_min"), cur.MirrorSettleMin)
+	}
+	next.AutoTheme = r.FormValue("auto_theme") != ""
 	if v := strings.TrimSpace(r.FormValue("heic_exts")); v != "" {
 		next.HeicExts = splitExts(v)
 	}
@@ -257,7 +261,6 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	next.WebhookOnSuccess = r.FormValue("webhook_on_success") != ""
 	next.WebhookOnFailure = r.FormValue("webhook_on_failure") != ""
 	next.WebhookOnSystem = r.FormValue("webhook_on_system") != ""
-	next.WebhookDigestSec = atoiOr(r.FormValue("webhook_digest_sec"), cur.WebhookDigestSec)
 	next.WebhookMaxItems = atoiOr(r.FormValue("webhook_max_items"), cur.WebhookMaxItems)
 
 	if err := s.eng.UpdateSettings(r.Context(), next); err != nil {

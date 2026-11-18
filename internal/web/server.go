@@ -43,12 +43,23 @@ var funcMap = template.FuncMap{
 	"fmtAgo":      fmtAgo,
 	"fmtDuration": fmtDuration,
 	"pct":         func(v float64) string { return strconv.Itoa(int(v*100 + 0.5)) },
-	"statusText":  statusText,
-	"statusClass": statusClass,
-	"stageText":   stageText,
-	"truncate":    truncate,
-	"dec":         func(n int) int { return n - 1 },
-	"inc":         func(n int) int { return n + 1 },
+	"scanPct": func(s engine.ScanStatus) int {
+		if s.Total <= 0 {
+			return 0
+		}
+		v := int(float64(s.Done) * 100 / float64(s.Total))
+		if v > 100 {
+			v = 100
+		}
+		return v
+	},
+	"scanPhaseText": scanPhaseText,
+	"statusText":    statusText,
+	"statusClass":   statusClass,
+	"stageText":     stageText,
+	"truncate":      truncate,
+	"dec":           func(n int) int { return n - 1 },
+	"inc":           func(n int) int { return n + 1 },
 	"dict": func(kv ...any) map[string]any {
 		m := make(map[string]any, len(kv)/2)
 		for i := 0; i+1 < len(kv); i += 2 {
@@ -149,6 +160,14 @@ func (s *Server) render(w http.ResponseWriter, page string, data any) {
 	if !ok {
 		http.Error(w, "页面不存在", http.StatusNotFound)
 		return
+	}
+	// 布局里要用到「是否自动切换配色」与版本号，统一在这里注入，
+	// 免得每个 handler 都记得塞一遍。
+	if m, ok := data.(map[string]any); ok {
+		m["AutoTheme"] = s.eng.Settings().AutoTheme
+		if _, has := m["Version"]; !has {
+			m["Version"] = config.Version
+		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := t.ExecuteTemplate(w, "layout", data); err != nil {
@@ -274,6 +293,22 @@ func stageText(s string) string {
 		return "Dry-Run"
 	default:
 		return s
+	}
+}
+
+// scanPhaseText 扫描阶段的中文说明，让用户知道「卡」在哪一步。
+func scanPhaseText(p string) string {
+	switch p {
+	case "walk":
+		return "遍历目录、登记文件"
+	case "content_id":
+		return "读取 ContentIdentifier"
+	case "md5":
+		return "计算 MD5 校验值"
+	case "pair":
+		return "配对并生成任务"
+	default:
+		return "准备扫描"
 	}
 }
 

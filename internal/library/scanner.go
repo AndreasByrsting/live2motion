@@ -85,6 +85,30 @@ type ScanOptions struct {
 	Settings        config.Settings
 	Trigger         string // manual / auto / startup / cli
 	ForceDeepVerify bool   // 忽略 mtime 强制重算 MD5（人工触发完整性校验）
+
+	// Progress 扫描过程中的实时进度回调（可选）。
+	// 大图库首轮扫描可能持续数分钟，界面需要看到「正在做什么、已经走过多少文件」，
+	// 否则统计全是 0，看起来像卡死。回调会在遍历、读元数据、算 MD5、配对各阶段被调用。
+	Progress func(ScanProgress)
+}
+
+// 扫描阶段，供界面显示当前在做什么。
+const (
+	ScanPhaseWalk      = "walk"       // 遍历目录、登记文件
+	ScanPhaseContentID = "content_id" // 读取 ContentIdentifier
+	ScanPhaseMD5       = "md5"        // 计算 MD5
+	ScanPhasePair      = "pair"       // 配对、创建任务
+)
+
+// ScanProgress 一次扫描的实时进度快照。
+type ScanProgress struct {
+	Phase     string // walk / content_id / md5 / pair
+	FilesSeen int64  // 已发现的候选文件（HEIC + 视频）
+	HeicSeen  int64
+	VideoSeen int64
+	Done      int64 // 当前阶段已处理数量（MD5 / 元数据读取时有效）
+	Total     int64 // 当前阶段总量（0 表示未知）
+	Elapsed   time.Duration
 }
 
 // ScanResult 一次扫描的输出统计。
@@ -101,6 +125,65 @@ type ScanResult struct {
 	Duration      time.Duration
 	PairStats     PairStats
 }
+
+// progressReporter 把扫描进度节流后回调给上层。
+// 遍历几万个文件时逐个回调会把 SSE 与模板刷新打爆，这里限流到 5 次/秒，
+// 阶段切换与扫描结束时强制上报，保证界面不会停在旧阶段。
+type progressReporter struct {
+	mu     sync.Mutex
+	fn     func(ScanProgress)
+	began  time.Time
+	last   time.Time
+	minGap time.Duration
+	p      ScanProgress
+}
+
+func newProgressReporter(fn func(ScanProgress), began time.Time) *progressReporter {
+	if fn == nil {
+		return nil
+	}
+	return &progressReporter{
+		fn:     fn,
+		began:  began,
+		minGap: 200 * time.Millisecond,
+		p:      ScanProgress{Phase: ScanPhaseWalk},
+	}
+}
+
+func (r *progressReporter) update(force bool, mutate func(p *ScanProgress)) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	mutate(&r.p)
+	r.p.Elapsed = time.Since(r.began)
+	now := time.Now()
+	if !force && now.Sub(r.last) < r.minGap {
+		r.mu.Unlock()
+		return
+	}
+	r.last = now
+	snap := r.p
+	r.mu.Unlock()
+	r.fn(snap)
+}
+
+// setPhase 切换阶段（强制上报，界面能立刻看到「正在读元数据」之类）。
+func (r *progressReporter) setPhase(phase string, total int64) {
+	r.update(true, func(p *ScanProgress) {
+		p.Phase = phase
+		p.Done = 0
+		p.Total = total
+	})
+}
+
+// step 当前阶段完成一项。
+func (r *progressReporter) step() {
+	r.update(false, func(p *ScanProgress) { p.Done++ })
+}
+
+// flush 结束前强制上报一次，确保 Done 追平 Total。
+func (r *progressReporter) flush() { r.update(true, func(*ScanProgress) {}) }
 
 // scannedFile 扫描过程中单个文件的上下文。
 type scannedFile struct {
@@ -131,12 +214,14 @@ func (s *Scanner) Scan(ctx context.Context, opt ScanOptions) (*ScanResult, error
 	}
 	res := &ScanResult{ScanID: scanID}
 	began := time.Now()
+	progress := newProgressReporter(opt.Progress, began)
+	progress.update(true, func(*ScanProgress) {})
 
 	// exiftool 版本变化时，让上一轮「读不到 ContentIdentifier」的文件重新解析。
 	// 否则升级工具后旧记录仍被当成普通文件，永远配不上对。
 	s.invalidateStaleCIDCache(ctx)
 
-	files, walkErr := s.collect(ctx, root, scanID, opt, res)
+	files, walkErr := s.collect(ctx, root, scanID, opt, res, progress)
 	if walkErr != nil {
 		s.st.FinishScan(ctx, store.ScanRun{
 			ID: scanID, SourceRoot: root, Trigger: opt.Trigger,
@@ -146,9 +231,9 @@ func (s *Scanner) Scan(ctx context.Context, opt ScanOptions) (*ScanResult, error
 		return res, walkErr
 	}
 
-	s.resolveContentIDs(ctx, files, res)
-	s.computeMD5s(ctx, files, opt, res)
-	pairStats, err := s.buildPairs(ctx, root, opt, res)
+	s.resolveContentIDs(ctx, files, res, progress)
+	s.computeMD5s(ctx, files, opt, res, progress)
+	pairStats, err := s.buildPairs(ctx, root, opt, res, progress)
 	if err != nil {
 		s.log.Warn("scan", "配对阶段异常: %v", err)
 		res.Warnings++
@@ -168,6 +253,7 @@ func (s *Scanner) Scan(ctx context.Context, opt ScanOptions) (*ScanResult, error
 	}
 
 	res.Duration = time.Since(began)
+	progress.flush()
 	if total, err := s.st.CountPairs(ctx, root); err == nil {
 		res.PairsTotal = total
 	}
@@ -213,7 +299,7 @@ func (s *Scanner) invalidateStaleCIDCache(ctx context.Context) {
 }
 
 // collect 递归遍历并批量登记源文件。
-func (s *Scanner) collect(ctx context.Context, root string, scanID int64, opt ScanOptions, res *ScanResult) ([]scannedFile, error) {
+func (s *Scanner) collect(ctx context.Context, root string, scanID int64, opt ScanOptions, res *ScanResult, pr *progressReporter) ([]scannedFile, error) {
 	files := make([]scannedFile, 0, 1024)
 	buf := make([]*store.Asset, 0, upsertBatch)
 
@@ -310,6 +396,11 @@ func (s *Scanner) collect(ctx context.Context, root string, scanID int64, opt Sc
 		} else {
 			res.VideoSeen++
 		}
+		seen, heics, videos := res.FilesSeen, res.HeicSeen, res.VideoSeen
+		pr.update(false, func(p *ScanProgress) {
+			p.Phase = ScanPhaseWalk
+			p.FilesSeen, p.HeicSeen, p.VideoSeen = seen, heics, videos
+		})
 		if len(buf) >= upsertBatch {
 			return flush()
 		}
@@ -325,7 +416,7 @@ func (s *Scanner) collect(ctx context.Context, root string, scanID int64, opt Sc
 }
 
 // resolveContentIDs 批量读取 ContentIdentifier 并落库。
-func (s *Scanner) resolveContentIDs(ctx context.Context, files []scannedFile, res *ScanResult) {
+func (s *Scanner) resolveContentIDs(ctx context.Context, files []scannedFile, res *ScanResult, pr *progressReporter) {
 	var need []int
 	for i := range files {
 		f := &files[i]
@@ -353,12 +444,15 @@ func (s *Scanner) resolveContentIDs(ctx context.Context, files []scannedFile, re
 	for _, i := range need {
 		paths = append(paths, files[i].abs)
 	}
+	pr.setPhase(ScanPhaseContentID, int64(len(paths)))
 	results, err := ReadContentIdentifiers(ctx, s.exifBin, paths)
 	if err != nil {
 		s.log.Error("scan", "批量读取 ContentIdentifier 失败: %v", err)
 		res.Warnings++
+		pr.update(true, func(p *ScanProgress) { p.Done = p.Total })
 		return
 	}
+	pr.update(true, func(p *ScanProgress) { p.Done = p.Total })
 
 	updates := make([]store.ContentIDUpdate, 0, len(need))
 	var noCID, unreadable int
@@ -423,7 +517,8 @@ func (s *Scanner) resolveContentIDs(ctx context.Context, files []scannedFile, re
 //   - mtime 未变 → 复用上次结果，不读盘；
 //   - mtime 变化 → 重新计算；
 //   - 深度校验（周期或人工触发）→ 强制重算，若 mtime 未变而 MD5 变了，判定 bit rot。
-func (s *Scanner) computeMD5s(ctx context.Context, files []scannedFile, opt ScanOptions, res *ScanResult) {
+func (s *Scanner) computeMD5s(ctx context.Context, files []scannedFile, opt ScanOptions, res *ScanResult, pr *progressReporter) {
+	pr.setPhase(ScanPhaseMD5, 0)
 	if !opt.Settings.EnableMD5 {
 		return
 	}
@@ -454,6 +549,7 @@ func (s *Scanner) computeMD5s(ctx context.Context, files []scannedFile, opt Scan
 	if len(tasks) == 0 {
 		return
 	}
+	pr.setPhase(ScanPhaseMD5, int64(len(tasks)))
 
 	conc := opt.Settings.Workers
 	if conc < 1 {
@@ -475,6 +571,7 @@ func (s *Scanner) computeMD5s(ctx context.Context, files []scannedFile, opt Scan
 		go func(t task) {
 			defer wg.Done()
 			defer func() { <-sem }()
+			defer pr.step()
 			f := &files[t.idx]
 			sum, n, err := MD5File(f.abs)
 			if err != nil {
@@ -516,6 +613,7 @@ func (s *Scanner) computeMD5s(ctx context.Context, files []scannedFile, opt Scan
 		}(t)
 	}
 	wg.Wait()
+	pr.flush()
 
 	if err := s.st.BulkSetMD5(ctx, updates); err != nil {
 		s.log.Error("hash", "写入 MD5 失败: %v", err)
@@ -533,16 +631,18 @@ func (s *Scanner) computeMD5s(ctx context.Context, files []scannedFile, opt Scan
 }
 
 // buildPairs 用 ContentIdentifier 配对并创建任务。
-func (s *Scanner) buildPairs(ctx context.Context, root string, opt ScanOptions, res *ScanResult) (PairStats, error) {
+func (s *Scanner) buildPairs(ctx context.Context, root string, opt ScanOptions, res *ScanResult, pr *progressReporter) (PairStats, error) {
 	cands, err := s.st.ListPairingCandidates(ctx, root)
 	if err != nil {
 		return PairStats{}, err
 	}
 	pairs, stats := BuildPairs(cands)
 	res.PairsUnpaired = int64(stats.OrphanHeic + stats.OrphanVideo)
+	pr.setPhase(ScanPhasePair, int64(len(pairs)))
 
 	maxAttempts := opt.Settings.MaxRetries + 1
 	for _, pc := range pairs {
+		pr.step()
 		p := &store.Pair{
 			SourceRoot:   root,
 			ContentID:    pc.ContentID,

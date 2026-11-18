@@ -1,7 +1,8 @@
 // Package webhook 负责把任务事件推送到外部服务（钉钉/飞书/Slack/ntfy/Bark/自定义）。
 //
 // 设计要点：
-//   - 同类事件在时间窗口内合并成一条，避免批量转换时刷屏；
+//   - 一条事件 = 一条推送。合并窗口已移除：调用方（engine）现在以
+//     「一轮扫描 → 队列排空」为单位汇总好内容，逐任务推送不会再发生；
 //   - 按目标地址自动适配报文格式，用户不需要选平台；
 //   - 推送失败只记日志、重试一次，绝不阻塞转换主流程。
 package webhook
@@ -35,11 +36,11 @@ const (
 func KindTitle(k Kind) string {
 	switch k {
 	case KindStart:
-		return "开始转换"
+		return "开始处理"
 	case KindSuccess:
-		return "转换完成"
+		return "处理完成"
 	case KindFailure:
-		return "转换失败"
+		return "处理完成（有失败）"
 	case KindSystem:
 		return "系统异常"
 	case KindTest:
@@ -49,51 +50,24 @@ func KindTitle(k Kind) string {
 	}
 }
 
-// kindVerb 用于合并消息的动词。
-func kindVerb(k Kind) string {
-	switch k {
-	case KindStart:
-		return "开始处理"
-	case KindSuccess:
-		return "转换成功"
-	case KindFailure:
-		return "转换失败"
-	case KindSystem:
-		return "出现异常"
-	case KindTest:
-		return "测试"
-	default:
-		return "发生事件"
-	}
-}
-
 // Event 一条待推送的事件。
 type Event struct {
 	Kind   Kind
-	Title  string // 简短标识，如文件名
-	Detail string // 详细描述
+	Title  string // 推送标题（为空时用 KindTitle）
+	Detail string // 正文，支持多行
 	At     time.Time
 }
 
 // Logger 日志回调，由 engine 注入。
 type Logger func(level, format string, args ...any)
 
-// maxBucket 单个合并桶的上限，达到后提前推送，避免长时间窗口堆积过多。
-const maxBucket = 50
-
-type bucket struct {
-	events []Event
-	timer  *time.Timer
-}
-
-// Notifier 事件聚合与推送。
+// Notifier 推送器。
 type Notifier struct {
-	mu      sync.Mutex
-	cfg     config.Settings
-	buckets map[Kind]*bucket
-	client  *http.Client
-	log     Logger
-	closed  bool
+	mu     sync.Mutex
+	cfg    config.Settings
+	client *http.Client
+	log    Logger
+	closed bool
 }
 
 // New 构造 Notifier。
@@ -102,60 +76,35 @@ func New(cfg config.Settings, log Logger) *Notifier {
 		log = func(string, string, ...any) {}
 	}
 	return &Notifier{
-		cfg:     cfg,
-		buckets: make(map[Kind]*bucket),
-		client:  &http.Client{Timeout: 12 * time.Second},
-		log:     log,
+		cfg:    cfg,
+		client: &http.Client{Timeout: 12 * time.Second},
+		log:    log,
 	}
 }
 
-// Update 应用新配置；关键参数变化时清空待发队列，避免用旧地址发新消息。
+// Update 应用新配置。
 func (n *Notifier) Update(cfg config.Settings) {
 	n.mu.Lock()
-	old := n.cfg
 	n.cfg = cfg
-	if old.WebhookURL != cfg.WebhookURL || !cfg.WebhookEnabled {
-		for k, b := range n.buckets {
-			if b.timer != nil {
-				b.timer.Stop()
-			}
-			delete(n.buckets, k)
-		}
-	}
 	n.mu.Unlock()
 }
 
-// Close 停止所有合并定时器，并把未发出的消息尝试发一次。
+// Close 标记关闭：之后提交的事件不再发送。已发出的请求无法中断，无需等待。
 func (n *Notifier) Close() {
 	n.mu.Lock()
 	n.closed = true
-	pending := make(map[Kind][]Event, len(n.buckets))
-	cfg := n.cfg
-	for k, b := range n.buckets {
-		if b.timer != nil {
-			b.timer.Stop()
-		}
-		if len(b.events) > 0 {
-			pending[k] = b.events
-		}
-		delete(n.buckets, k)
-	}
 	n.mu.Unlock()
-
-	for _, events := range pending {
-		n.send(cfg, events)
-	}
 }
 
-// Enabled 当前配置下该事件是否需要推送。
+// Enabled 当前配置下是否有可用的推送通道。
 func (n *Notifier) Enabled() bool {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.cfg.WebhookEnabled && n.cfg.WebhookURL != ""
 }
 
-// allowed 判断该事件类型是否开启推送。
-func allowed(cfg config.Settings, k Kind) bool {
+// Allowed 判断某类事件在当前配置下是否需要推送。
+func Allowed(cfg config.Settings, k Kind) bool {
 	if !cfg.WebhookEnabled || cfg.WebhookURL == "" {
 		return false
 	}
@@ -172,107 +121,33 @@ func allowed(cfg config.Settings, k Kind) bool {
 	return false
 }
 
-// Notify 提交一条事件。是否真正发送、是否合并由配置决定。
+// Notify 提交一条事件。是否真正发送由配置决定，发送是异步的。
 func (n *Notifier) Notify(e Event) {
 	if e.At.IsZero() {
 		e.At = time.Now()
 	}
 	n.mu.Lock()
-	if n.closed {
-		n.mu.Unlock()
-		return
-	}
-	cfg := n.cfg
-	n.mu.Unlock()
-
-	if !allowed(cfg, e.Kind) {
-		return
-	}
-
-	// 窗口为 0：不合并，立即发
-	if cfg.WebhookDigestSec <= 0 {
-		go n.send(cfg, []Event{e})
-		return
-	}
-
-	n.mu.Lock()
-	b, ok := n.buckets[e.Kind]
-	if !ok {
-		b = &bucket{}
-		n.buckets[e.Kind] = b
-	}
-	b.events = append(b.events, e)
-
-	// 堆积过多时立即 flush，避免长窗口忘发
-	if len(b.events) >= maxBucket {
-		events := b.events
-		if b.timer != nil {
-			b.timer.Stop()
-		}
-		delete(n.buckets, e.Kind)
-		n.mu.Unlock()
-		go n.send(cfg, events)
-		return
-	}
-
-	// 桶内第一条事件才启动定时器（固定窗口，从第一条开始计时）
-	if b.timer == nil {
-		kind := e.Kind
-		window := time.Duration(cfg.WebhookDigestSec) * time.Second
-		b.timer = time.AfterFunc(window, func() { n.flush(kind) })
-	}
-	n.mu.Unlock()
-}
-
-// flush 到期后取出整桶并推送。
-func (n *Notifier) flush(kind Kind) {
-	n.mu.Lock()
-	b, ok := n.buckets[kind]
-	if !ok || len(b.events) == 0 {
-		n.mu.Unlock()
-		return
-	}
-	events := b.events
-	delete(n.buckets, kind)
 	cfg := n.cfg
 	closed := n.closed
 	n.mu.Unlock()
-
-	if closed {
+	if closed || !Allowed(cfg, e.Kind) {
 		return
 	}
-	n.send(cfg, events)
+	go n.send(cfg, e)
 }
 
 // ---------- 报文构建 ----------
 
-// buildText 把一组事件渲染成适合 IM 阅读的纯文本。
-func buildText(cfg config.Settings, events []Event) (title, body string) {
-	kind := events[0].Kind
-	if len(events) == 1 {
-		title = "[immich2motion] " + KindTitle(kind)
-		e := events[0]
-		body = e.Detail
-		if e.Title != "" && !strings.Contains(e.Detail, e.Title) {
-			body = e.Title + "：" + e.Detail
-		}
-		return title, body
+// buildText 把一条事件渲染成适合 IM 阅读的标题与正文。
+func buildText(e Event) (title, body string) {
+	title = "[immich2motion] " + KindTitle(e.Kind)
+	if strings.TrimSpace(e.Title) != "" {
+		title = "[immich2motion] " + strings.TrimSpace(e.Title)
 	}
-
-	title = fmt.Sprintf("[immich2motion] %d 个任务%s", len(events), kindVerb(kind))
-	max := cfg.WebhookMaxItems
-	if max < 1 {
-		max = 10
+	body = strings.TrimSpace(e.Detail)
+	if body == "" {
+		body = KindTitle(e.Kind)
 	}
-	lines := make([]string, 0, max+1)
-	for i, e := range events {
-		if i >= max {
-			lines = append(lines, fmt.Sprintf("… 还有 %d 条", len(events)-max))
-			break
-		}
-		lines = append(lines, "· "+e.Title)
-	}
-	body = strings.Join(lines, "\n")
 	return title, body
 }
 
@@ -300,12 +175,12 @@ func detectPlatform(u *url.URL) string {
 }
 
 // buildRequest 按平台生成请求体与额外 header。
-func buildRequest(cfg config.Settings, events []Event) (body []byte, headers map[string]string, err error) {
+func buildRequest(cfg config.Settings, e Event) (body []byte, headers map[string]string, err error) {
 	parsed, perr := url.Parse(cfg.WebhookURL)
 	if perr != nil {
 		return nil, nil, fmt.Errorf("解析 Webhook 地址失败: %w", perr)
 	}
-	title, content := buildText(cfg, events)
+	title, content := buildText(e)
 	text := title + "\n" + content
 	platform := detectPlatform(parsed)
 
@@ -353,18 +228,12 @@ func buildRequest(cfg config.Settings, events []Event) (body []byte, headers map
 
 	default:
 		// 通用结构：便于自建接收端做结构化处理
-		items := make([]string, 0, len(events))
-		for _, e := range events {
-			items = append(items, e.Title)
-		}
 		payload := map[string]any{
 			"source":   "immich2motion",
-			"event":    string(events[0].Kind),
+			"event":    string(e.Kind),
 			"title":    title,
 			"message":  content,
-			"count":    len(events),
-			"items":    items,
-			"at":       events[0].At.Format(time.RFC3339),
+			"at":       e.At.Format(time.RFC3339),
 			"platform": "generic",
 		}
 		b, _ := json.Marshal(payload)
@@ -372,7 +241,7 @@ func buildRequest(cfg config.Settings, events []Event) (body []byte, headers map
 	}
 }
 
-// SendNow 立即发送一条事件，不经过合并窗口。用于「测试推送」按钮。
+// SendNow 立即发送一条事件。用于「测试推送」按钮。
 func (n *Notifier) SendNow(e Event) error {
 	n.mu.Lock()
 	cfg := n.cfg
@@ -383,7 +252,7 @@ func (n *Notifier) SendNow(e Event) error {
 	if e.At.IsZero() {
 		e.At = time.Now()
 	}
-	body, headers, err := buildRequest(cfg, []Event{e})
+	body, headers, err := buildRequest(cfg, e)
 	if err != nil {
 		return err
 	}
@@ -393,11 +262,11 @@ func (n *Notifier) SendNow(e Event) error {
 // ---------- 发送 ----------
 
 // send 同步发送，失败重试一次。所有错误只落日志。
-func (n *Notifier) send(cfg config.Settings, events []Event) {
-	if len(events) == 0 || cfg.WebhookURL == "" {
+func (n *Notifier) send(cfg config.Settings, e Event) {
+	if cfg.WebhookURL == "" {
 		return
 	}
-	body, headers, err := buildRequest(cfg, events)
+	body, headers, err := buildRequest(cfg, e)
 	if err != nil {
 		n.log("warn", "%v", err)
 		return
@@ -407,12 +276,7 @@ func (n *Notifier) send(cfg config.Settings, events []Event) {
 	for attempt := 0; attempt < 2; attempt++ {
 		lastErr = n.post(cfg.WebhookURL, body, headers)
 		if lastErr == nil {
-			kind := events[0].Kind
-			if len(events) > 1 {
-				n.log("info", "Webhook 已推送：%s × %d 条", KindTitle(kind), len(events))
-			} else {
-				n.log("info", "Webhook 已推送：%s · %s", KindTitle(kind), events[0].Title)
-			}
+			n.log("info", "Webhook 已推送：%s", buildTitleForLog(e))
 			return
 		}
 		if attempt == 0 {
@@ -420,6 +284,13 @@ func (n *Notifier) send(cfg config.Settings, events []Event) {
 		}
 	}
 	n.log("warn", "Webhook 推送失败（已重试 1 次）：%v", lastErr)
+}
+
+func buildTitleForLog(e Event) string {
+	if strings.TrimSpace(e.Title) != "" {
+		return e.Title
+	}
+	return KindTitle(e.Kind)
 }
 
 func (n *Notifier) post(endpoint string, body []byte, headers map[string]string) error {
@@ -466,7 +337,7 @@ func detectBizError(body []byte) string {
 	}
 	if v, ok := m["code"]; ok {
 		if code, ok := v.(float64); ok && code != 0 {
-			return fmt.Sprintf("code=%v msg=%v", v, m["msg"])
+			return fmt.Sprintf("code=%v msg=%v", code, m["msg"])
 		}
 	}
 	return ""

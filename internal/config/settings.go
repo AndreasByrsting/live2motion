@@ -26,6 +26,7 @@ type Settings struct {
 	ReconvertOnChange   bool     `json:"reconvert_on_change"`   // 源文件变化时是否自动重转
 	PreserveOrientation bool     `json:"preserve_orientation"`  // 是否复制原始 EXIF Orientation（默认否，避免二次旋转）
 	VerifyBeforeConvert bool     `json:"verify_before_convert"` // 转换前用 MD5 校验源文件完整性
+	AutoTheme           bool     `json:"auto_theme"`            // 是否按本地时间自动切换日间/夜间配色
 
 	// IncludeUnconverted 控制输出目录的「完整度」：
 	//   false（默认）只输出转换成功的 Motion Photo，图库里其它照片不出现；
@@ -34,17 +35,24 @@ type Settings struct {
 	//        这样同步给 Pixel 的文件既完整又不重复。
 	IncludeUnconverted bool `json:"include_unconverted"`
 
+	// MirrorSettleMin 是「未定型的源文件」在输出目录门外的观察期（分钟）。
+	//
+	// 输出目录一旦写出文件，下游（Syncthing → Immich / 手机）就会立刻取走，
+	// 之后再删除并不能撤回已经上传的那一份。所以只允许写「终态」：
+	// 刚出现、还没配对的 HEIC/MOV，以及刚失败、用户可能马上重试的配对，
+	// 都要先观察一段时间再决定是复制原件还是等转换。0 表示不等待（旧行为）。
+	MirrorSettleMin int `json:"mirror_settle_min"`
+
 	// ---- Webhook 通知 ----
 	WebhookEnabled bool   `json:"webhook_enabled"`
 	WebhookURL     string `json:"webhook_url"`
-	// 事件开关：开始 / 成功 / 失败 / 系统故障
+	// 事件开关：开始 / 完成 / 失败 / 系统故障
+	// 推送以「一轮扫描 → 队列排空」为单位，每个事件一轮最多一条，不再按任务逐条推。
 	WebhookOnStart   bool `json:"webhook_on_start"`
 	WebhookOnSuccess bool `json:"webhook_on_success"`
 	WebhookOnFailure bool `json:"webhook_on_failure"`
 	WebhookOnSystem  bool `json:"webhook_on_system"`
-	// 合并窗口（秒）：窗口内同类消息合并成一条推送；0 表示不合并、立即发送
-	WebhookDigestSec int `json:"webhook_digest_sec"`
-	// 合并消息里最多列出多少条明细
+	// 汇总消息里最多列出多少条失败明细
 	WebhookMaxItems int `json:"webhook_max_items"`
 }
 
@@ -69,14 +77,15 @@ func DefaultSettings() Settings {
 		PreserveOrientation: false,
 		VerifyBeforeConvert: true,
 		IncludeUnconverted:  false,
+		MirrorSettleMin:     30,
+		AutoTheme:           true,
 
 		WebhookEnabled:   false,
 		WebhookURL:       "",
-		WebhookOnStart:   false, // 开始事件最频繁，默认关
+		WebhookOnStart:   true, // 一轮扫描只推一条，默认开启
 		WebhookOnSuccess: true,
 		WebhookOnFailure: true,
 		WebhookOnSystem:  true,
-		WebhookDigestSec: 180, // 3 分钟合并窗口
 		WebhookMaxItems:  10,
 	}
 }
@@ -114,6 +123,15 @@ func (s *Settings) Normalize() {
 	if s.DeepVerifyHours < 0 {
 		s.DeepVerifyHours = 0
 	}
+	// 观察期上限 24 小时：再长就失去意义了，还会让图库长期缺文件。
+	// 负数按 0 处理（0 = 不等待）。「旧库缺字段」的补默认值在 store.LoadSettings 里做，
+	// 这里不能把 0 也改成 30，否则用户主动填 0（立即复制）会被悄悄改掉。
+	if s.MirrorSettleMin < 0 {
+		s.MirrorSettleMin = 0
+	}
+	if s.MirrorSettleMin > 1440 {
+		s.MirrorSettleMin = 1440
+	}
 	s.HeicExts = normalizeExts(s.HeicExts, []string{".heic", ".heif"})
 	s.VideoExts = normalizeExts(s.VideoExts, []string{".mov", ".mp4"})
 	s.SourceDir = filepath.Clean(strings.TrimSpace(s.SourceDir))
@@ -121,18 +139,6 @@ func (s *Settings) Normalize() {
 
 	// Webhook
 	s.WebhookURL = strings.TrimSpace(s.WebhookURL)
-	if s.WebhookDigestSec < 0 {
-		s.WebhookDigestSec = 0
-	}
-	if s.WebhookDigestSec > 3600 {
-		s.WebhookDigestSec = 3600
-	}
-	// 旧版本升级上来时 JSON 里没有 webhook 字段，会解析成 0。
-	// 0 的语义是「不合并、立即发」，和「从未配置」无法区分，
-	// 这里用「URL 也为空」判定为从未配置，补上默认 3 分钟窗口。
-	if s.WebhookDigestSec == 0 && s.WebhookURL == "" {
-		s.WebhookDigestSec = 180
-	}
 	if s.WebhookMaxItems < 1 {
 		s.WebhookMaxItems = 10
 	}

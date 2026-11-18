@@ -54,6 +54,11 @@ func run() error {
   I2M_INCLUDE_UNCONVERTED
                       完整图库模式（默认 false）：把未参与转换的源文件原样复制到输出目录，
                       保持与源目录相同的相对路径，使同步出去的图库完整且不重复
+  I2M_MIRROR_SETTLE_MIN
+                      镜像观察期（默认 30 分钟）：新到达或刚失败的源文件先不写进输出目录，
+                      等它定型（另一半到达、或确认不会再转换）后再决定，避免写完又删。
+                      0 = 不等待，立即写入（旧行为）
+  I2M_AUTO_THEME      面板按本地时间自动切换日间/夜间配色（默认 true）
   I2M_EXIFTOOL        exiftool 可执行文件
   I2M_HEIF_CONVERT    heif-convert 可执行文件
 `)
@@ -164,8 +169,8 @@ func runOnce(ctx context.Context, cfg config.Config, st *store.Store, settings c
 		if merr != nil {
 			fmt.Fprintf(os.Stderr, "警告: 同步未转换文件失败: %v\n", merr)
 		} else {
-			fmt.Printf("同步完成：遍历 %d 个，新复制 %d，更新 %d，跳过 %d，清理副本 %d，失败 %d\n",
-				stats.Seen, stats.Copied, stats.Updated, stats.Skipped, stats.Pruned, stats.Failed)
+			fmt.Printf("同步完成：遍历 %d 个，新复制 %d，更新 %d，跳过 %d，观察中 %d，清理副本 %d，失败 %d\n",
+				stats.Seen, stats.Copied, stats.Updated, stats.Skipped, stats.Held, stats.Pruned, stats.Failed)
 		}
 	}
 	return nil

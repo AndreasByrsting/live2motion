@@ -8,6 +8,17 @@
 //	<output>/2024/06/VID_0001.MOV          ← 没配上对的视频，原样复制
 //
 // 目录结构与源目录完全一致，所以 Syncthing 同步过去之后，Pixel 上既完整又不重复。
+//
+// # 只写终态（重要）
+//
+// 输出目录一旦写出文件，下游（Syncthing → Immich / 手机）会立刻取走上传；
+// 之后再删除并不能撤回已经上传的那一份。所以写入必须「白名单化」：
+//
+//	非转换类扩展名（JPG/PNG/DNG/AAE…）→ 永远不会变成 Motion Photo，直接复制；
+//	转换类扩展名（HEIC/HEIF/MOV/MP4…）→ 只有在 Options.Allow 里才允许复制。
+//
+// Allow 由引擎按「这组实况已定型且不会转换」计算（转换失败超过观察期、
+// 或从未配对且已过观察期）。其余情况一律按住不写，等定型后下一轮再判断。
 package mirror
 
 import (
@@ -46,10 +57,15 @@ func New(st *store.Store, log Logger) *Syncer {
 type Options struct {
 	SourceDir string
 	OutputDir string
-	// Exclude 不参与镜像的源文件（相对路径，统一用 / 分隔）。
-	// 值为 true 表示该文件已转换成功：不复制，并清理此前遗留的副本；
-	// 值为 false 表示等待/正在转换：不复制，也不清理（转换完成后由成功回调清理）。
-	Exclude map[string]bool
+
+	// Allow 允许以「原样副本」形式写入输出目录的转换类源文件（相对路径，统一用 / 分隔）。
+	// 不在集合里的转换类文件一律不写：它们还没定型，写了之后很可能又要删，
+	// 而删除无法撤回上游已经同步走的那一份。
+	Allow map[string]struct{}
+
+	// ConvertibleExts 参与转换的扩展名（小写、带点，如 ".heic"）。
+	// 这些扩展名的文件受 Allow 管控；其它扩展名永远不会被合成成 Motion Photo，可以立即复制。
+	ConvertibleExts map[string]struct{}
 }
 
 // Stats 一次镜像同步的统计。
@@ -58,6 +74,7 @@ type Stats struct {
 	Copied  int64 // 新复制
 	Updated int64 // 源文件变化后重新复制
 	Skipped int64 // 已是最新，未读盘
+	Held    int64 // 观察期内故意没复制（等定型）
 	Pruned  int64 // 清理掉的副本
 	Failed  int64
 	Bytes   int64
@@ -69,8 +86,8 @@ const (
 	tmpPattern = ".i2m-*.tmp"
 )
 
-// Run 执行一次镜像同步：遍历源目录，把不在 Exclude 里的普通文件复制到输出目录，
-// 并清理两类副本——已转换成功的源文件副本、源文件已消失的副本。
+// Run 执行一次镜像同步：遍历源目录，把「允许写入」的文件复制到输出目录，
+// 并清理本轮不该再留的副本（源文件已消失 / 已转换成功 / 退回观察期）。
 func (s *Syncer) Run(ctx context.Context, opt Options) (Stats, error) {
 	var stats Stats
 	root := filepath.Clean(opt.SourceDir)
@@ -98,11 +115,10 @@ func (s *Syncer) Run(ctx context.Context, opt Options) (Stats, error) {
 	if err != nil {
 		return stats, fmt.Errorf("读取镜像记录失败: %w", err)
 	}
-	// 记录里有、本轮源目录没见到的 → 源文件已删除/改名，副本要跟着删
-	unseen := make(map[string]struct{}, len(records))
-	for rel := range records {
-		unseen[rel] = struct{}{}
-	}
+	// keep 记录本轮「仍然应该留在输出目录」的副本。遍历结束后，
+	// 不在 keep 里的记录一律清理——这同时覆盖三种情况：
+	//   源文件已删除/改名、源文件已转换成功、源文件退回观察期（不该再有副本）。
+	keep := make(map[string]struct{}, len(records))
 
 	var batch []store.MirrorRecord
 	flush := func() error {
@@ -151,20 +167,17 @@ func (s *Syncer) Run(ctx context.Context, opt Options) (Stats, error) {
 			return nil
 		}
 		rel := filepath.ToSlash(relOS)
-		delete(unseen, rel)
 		stats.Seen++
 
-		if prune, excluded := opt.Exclude[rel]; excluded {
-			if prune {
-				if n, perr := s.pruneOne(ctx, root, out, rel); perr != nil {
-					s.log.Warn("mirror", "清理旧副本失败 %s: %v", rel, perr)
-					stats.Failed++
-				} else {
-					stats.Pruned += n
-				}
+		// 白名单闸门：转换类文件只有「已定型、确定不会转换」时才允许落盘。
+		// 这里只是不写，已有副本由遍历结束后的对账统一清理。
+		if s.isConvertible(d.Name(), opt) {
+			if _, ok := opt.Allow[rel]; !ok {
+				stats.Held++
+				return nil
 			}
-			return nil
 		}
+		keep[rel] = struct{}{}
 
 		fi, err := d.Info()
 		if err != nil {
@@ -226,24 +239,35 @@ func (s *Syncer) Run(ctx context.Context, opt Options) (Stats, error) {
 	}
 
 	if walkBroken {
-		if len(unseen) > 0 {
-			s.log.Warn("mirror", "遍历存在访问错误，本轮跳过「源文件已消失」清理（%d 条记录待下轮确认）", len(unseen))
+		if len(records) > len(keep) {
+			s.log.Warn("mirror", "遍历存在访问错误，本轮跳过副本对账（%d 条记录待下轮确认）", len(records)-len(keep))
 		}
 		return stats, nil
 	}
-	gone := make([]string, 0, len(unseen))
-	for rel := range unseen {
-		gone = append(gone, rel)
+	gone := make([]string, 0, len(records))
+	for rel := range records {
+		if _, ok := keep[rel]; !ok {
+			gone = append(gone, rel)
+		}
 	}
 	if len(gone) > 0 {
 		n, err := s.pruneMany(ctx, root, out, gone)
 		stats.Pruned += n
 		if err != nil {
-			s.log.Warn("mirror", "清理已消失源文件的副本失败: %v", err)
+			s.log.Warn("mirror", "清理失效副本失败: %v", err)
 			stats.Failed++
 		}
 	}
 	return stats, nil
+}
+
+// isConvertible 判断该文件是否会参与转换（只看扩展名，与扫描器的收录规则一致）。
+func (s *Syncer) isConvertible(name string, opt Options) bool {
+	if len(opt.ConvertibleExts) == 0 {
+		return false
+	}
+	_, ok := opt.ConvertibleExts[strings.ToLower(filepath.Ext(name))]
+	return ok
 }
 
 // PruneSources 清理这些源文件在输出目录里可能存在的镜像副本。

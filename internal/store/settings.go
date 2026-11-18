@@ -42,6 +42,20 @@ func (s *Store) LoadSettings(ctx context.Context) (config.Settings, error) {
 	if err := json.Unmarshal([]byte(raw), &st); err != nil {
 		return config.Settings{}, fmt.Errorf("解析设置失败: %w", err)
 	}
+	// 旧库的 JSON 里没有 auto_theme 字段，解析出来是 false。
+	// 但旧版本的界面本来就是「按时间自动切换」，所以升级时要补成 true，
+	// 否则升级后所有人的面板会突然固定在夜间配色。
+	// mirror_settle_min 同理：旧库没有这个字段，解析成 0 = 立即复制（旧行为），
+	// 而新默认值是 30 分钟观察期，升级后应当直接生效。
+	var probe map[string]json.RawMessage
+	if json.Unmarshal([]byte(raw), &probe) == nil {
+		if _, ok := probe["auto_theme"]; !ok {
+			st.AutoTheme = true
+		}
+		if _, ok := probe["mirror_settle_min"]; !ok {
+			st.MirrorSettleMin = config.DefaultSettings().MirrorSettleMin
+		}
+	}
 	st.Normalize()
 	return st, nil
 }
