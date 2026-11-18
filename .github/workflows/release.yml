@@ -1,21 +1,16 @@
 name: Build and Push Docker Image
 
-# 触发：
-#   - 推送 master / main 分支（自动出 latest + sha 标签）
+# 触发规则：
+#   - 推送 main 分支（自动出 latest + sha 标签）
 #   - 推送 v* 标签（额外产出语义化版本号，如 1.2.3 / 1.2 / 1）
 #   - 手动触发（Actions 页面 Run workflow）
 on:
   push:
     branches:
-      - master
       - main
     tags:
       - "v*"
   workflow_dispatch:
-
-env:
-  # 改成你自己的仓库名即可，例如 yourname/immich2motion
-  IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/immich2motion
 
 jobs:
   docker:
@@ -27,22 +22,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # tag 推送：v1.2.3 → 1.2.3 / 1.2 / 1；分支推送只打 latest + 短 sha
+      # tag 推送：v1.2.3 → 1.2.3 / 1.2 / 1；main 推送只打 latest + 短 sha
       # 注意：tags 块里的内容会原样交给 metadata-action 解析，不能写 # 注释
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_NAME }}
+          # 镜像名：改成你自己的 Docker Hub 仓库即可
+          images: ${{ secrets.DOCKER_USERNAME }}/immich2motion
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,format=short,prefix=
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Check secrets
+        env:
+          DH_USER: ${{ secrets.DOCKER_USERNAME }}
+          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          missing=""
+          if [ -z "$DH_USER" ]; then missing="$missing DOCKER_USERNAME"; fi
+          if [ -z "$DH_TOKEN" ]; then missing="$missing DOCKERHUB_TOKEN"; fi
+          if [ -n "$missing" ]; then
+            echo "::error::缺少 secrets:$missing。请在仓库 Settings → Secrets and variables → Actions → Repository secrets 中添加（注意是 Secrets 标签页，不是 Variables）"
+            exit 1
+          fi
+          echo "✓ secrets 已配置，Docker Hub 用户：$DH_USER"
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -74,7 +84,7 @@ jobs:
             echo ""
             echo "| 项 | 值 |"
             echo "| --- | --- |"
-            echo "| 镜像 | \`${{ env.IMAGE_NAME }}\` |"
+            echo "| 镜像 | \`${{ secrets.DOCKER_USERNAME }}/immich2motion\` |"
             echo "| 平台 | linux/amd64 |"
             echo "| 版本 | \`${{ steps.meta.outputs.version }}\` |"
             echo "| 摘要 | \`${{ steps.build.outputs.digest }}\` |"
