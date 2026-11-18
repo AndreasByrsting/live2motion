@@ -9,15 +9,17 @@
 
 services:
   immich2motion:
-    build:
-      context: .
-      args:
-        VERSION: "0.1.0"
-        # true = 构建时重新下载 Tailwind 并编译 CSS；false = 使用仓库内已编译产物
-        REBUILD_CSS: "true"
-    image: immich2motion:0.1.0
+    image: andreasgyh/immich2motion:latest
     container_name: immich2motion
     restart: unless-stopped
+
+    # 想用本地源码构建（改过代码时）把 build 段取消注释，image 换成自定义名字：
+    # build:
+    #   context: .
+    #   args:
+    #     VERSION: "0.1.0"
+    #     REBUILD_CSS: "true"
+    # image: immich2motion:0.1.0
 
     ports:
       - "8080:8080"

@@ -40,6 +40,10 @@ flowchart LR
 
 ## 快速开始
 
+> 镜像已发布：`docker pull andreasgyh/immich2motion:latest`
+>
+> 只想跑起来用上面的 pull 即可，不需要 clone 仓库、也不需要本地构建。
+
 ### 1. docker compose（推荐）
 
 ```bash
@@ -57,7 +61,7 @@ volumes:
 ```
 
 ```bash
-docker compose up -d --build
+docker compose up -d      # 直接拉取镜像，不会本地构建
 docker compose logs -f
 ```
 
@@ -74,8 +78,6 @@ docker compose logs -f
 ### 2. 直接 docker run
 
 ```bash
-docker build -t immich2motion:0.1.0 .
-
 docker run -d --name immich2motion \
   --restart unless-stopped \
   -p 8080:8080 \
@@ -84,8 +86,19 @@ docker run -d --name immich2motion \
   -v immich2motion_data:/data \
   -e TZ=Asia/Shanghai \
   -e I2M_WORKERS=2 \
-  immich2motion:0.1.0
+  andreasgyh/immich2motion:latest
 ```
+
+### 3. 自己构建镜像
+
+改过代码、或想固定某个提交时：
+
+```bash
+docker build -t immich2motion:local .
+```
+
+国内网络下 Dockerfile 默认已指向 `docker.m.daocloud.io` 与 `goproxy.cn`；
+能直连官方源时传 `--build-arg REGISTRY=docker.io/library/ --build-arg GOPROXY=https://proxy.golang.org,direct`。
 
 备份数据库：
 
@@ -94,7 +107,7 @@ docker run --rm -v immich2motion_data:/data -v "$PWD:/backup" alpine \
   tar czf /backup/immich2motion-data.tar.gz -C /data .
 ```
 
-### 3. 第一次使用建议
+### 4. 第一次使用建议
 
 1. 打开 **仪表盘 → Dry-Run**，只做扫描与配对，确认「配对组数」符合预期；
 2. 打开 **任务列表**，检查 UUID、HEIC 路径、视频路径是否成对；
@@ -428,7 +441,7 @@ immich2motion/
 
 ## 自动构建（GitHub Actions）
 
-`.github/workflows/release.yml` 已配好：推送到 `master` / `main` 自动构建并推送到 Docker Hub（linux/amd64）。
+`.github/workflows/release.yml` 已配好：推送到 `main` 自动构建并推送到 Docker Hub（linux/amd64）。
 
 需要在仓库 **Settings → Secrets and variables → Actions** 里加两个 secret：
 
@@ -437,13 +450,14 @@ immich2motion/
 | `DOCKER_USERNAME` | Docker Hub 用户名 |
 | `DOCKERHUB_TOKEN` | Docker Hub **Access Token**（不是登录密码） |
 
-镜像名由 `workflow` 顶部的 `IMAGE_NAME` 决定，默认 `${DOCKER_USERNAME}/immich2motion`，要换仓库改这一行即可。
+镜像名写在 `docker/metadata-action` 的 `images:` 一行，当前是 `${{ secrets.DOCKER_USERNAME }}/immich2motion`，
+即发布到 **`andreasgyh/immich2motion`**。换仓库只改这一行。
 
 标签规则：
 
 | 触发 | 产出的标签 |
 | --- | --- |
-| 推送 `master` / `main` | `latest`、`sha-1a2b3c4` |
+| 推送 `main` | `latest`、`sha-1a2b3c4` |
 | 推送 `v1.2.3` 标签 | `1.2.3`、`1.2`、`1`、`sha-…` |
 | 手动 Run workflow | 同上（按当前 ref 判定） |
 
