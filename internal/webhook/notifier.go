@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/immich2motion/immich2motion/internal/config"
+	"github.com/AndreasByrsting/live2motion/internal/config"
 )
 
 // Kind 事件类型。
@@ -140,9 +140,9 @@ func (n *Notifier) Notify(e Event) {
 
 // buildText 把一条事件渲染成适合 IM 阅读的标题与正文。
 func buildText(e Event) (title, body string) {
-	title = "[immich2motion] " + KindTitle(e.Kind)
+	title = "[live2motion] " + KindTitle(e.Kind)
 	if strings.TrimSpace(e.Title) != "" {
-		title = "[immich2motion] " + strings.TrimSpace(e.Title)
+		title = "[live2motion] " + strings.TrimSpace(e.Title)
 	}
 	body = strings.TrimSpace(e.Detail)
 	if body == "" {
@@ -191,7 +191,7 @@ func buildRequest(cfg config.Settings, e Event) (body []byte, headers map[string
 		// ntfy 用 JSON 发布，中文标题才不会被 HTTP header 的 ASCII 限制破坏
 		topic := strings.Trim(parsed.Path, "/")
 		if topic == "" {
-			topic = "immich2motion"
+			topic = "live2motion"
 		}
 		b, _ := json.Marshal(map[string]any{
 			"topic": topic, "title": title, "message": content,
@@ -200,7 +200,7 @@ func buildRequest(cfg config.Settings, e Event) (body []byte, headers map[string
 		return b, headers, nil
 
 	case "bark":
-		payload := map[string]any{"title": title, "body": content, "group": "immich2motion"}
+		payload := map[string]any{"title": title, "body": content, "group": "live2motion"}
 		b, _ := json.Marshal(payload)
 		return b, headers, nil
 
@@ -229,7 +229,7 @@ func buildRequest(cfg config.Settings, e Event) (body []byte, headers map[string
 	default:
 		// 通用结构：便于自建接收端做结构化处理
 		payload := map[string]any{
-			"source":   "immich2motion",
+			"source":   "live2motion",
 			"event":    string(e.Kind),
 			"title":    title,
 			"message":  content,
@@ -301,7 +301,7 @@ func (n *Notifier) post(endpoint string, body []byte, headers map[string]string)
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	req.Header.Set("User-Agent", "immich2motion/webhook")
+	req.Header.Set("User-Agent", "live2motion/webhook")
 
 	resp, err := n.client.Do(req)
 	if err != nil {

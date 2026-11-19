@@ -1,4 +1,4 @@
-/* immich2motion 面板前端：SSE 实时日志 + 状态徽章 + 轻量交互 */
+/* live2motion 面板前端：SSE 实时日志 + 状态徽章 + 轻量交互 */
 (function () {
   'use strict';
 
@@ -8,7 +8,7 @@
   // 具体逻辑在 theme.js（<head> 里同步加载，负责首帧配色）。
   // 这里只保证 DOM 就绪后把图标与按钮状态同步一次。
   function applyTheme() {
-    if (window.i2mTheme) window.i2mTheme.apply();
+    if (window.l2mTheme) window.l2mTheme.apply();
   }
 
   function esc(s) {

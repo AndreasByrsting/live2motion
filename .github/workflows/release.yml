@@ -29,7 +29,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           # 镜像名：改成你自己的 Docker Hub 仓库即可
-          images: ${{ secrets.DOCKER_USERNAME }}/immich2motion
+          images: ${{ secrets.DOCKER_USERNAME }}/live2motion
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -80,11 +80,11 @@ jobs:
       - name: Summary
         run: |
           {
-            echo "### immich2motion 镜像已推送"
+            echo "### live2motion 镜像已推送"
             echo ""
             echo "| 项 | 值 |"
             echo "| --- | --- |"
-            echo "| 镜像 | \`${{ secrets.DOCKER_USERNAME }}/immich2motion\` |"
+            echo "| 镜像 | \`${{ secrets.DOCKER_USERNAME }}/live2motion\` |"
             echo "| 平台 | linux/amd64 |"
             echo "| 版本 | \`${{ steps.meta.outputs.version }}\` |"
             echo "| 摘要 | \`${{ steps.build.outputs.digest }}\` |"

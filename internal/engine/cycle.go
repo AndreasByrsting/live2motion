@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/immich2motion/immich2motion/internal/library"
-	"github.com/immich2motion/immich2motion/internal/webhook"
+	"github.com/AndreasByrsting/live2motion/internal/library"
+	"github.com/AndreasByrsting/live2motion/internal/webhook"
 )
 
 // 一轮「扫描 → 队列排空」的推送节奏。

@@ -1,20 +1,24 @@
-# immich2motion
+# live2motion
 
-把 Immich 图库里的苹果 **Live Photo**（HEIC + MOV）转换成 **Google 相册可识别的 Motion Photo**（JPG 容器 + 尾部拼接视频 + XMP `MicroVideo` 元数据），输出目录交给 Syncthing 同步到 Pixel，由 Pixel 的 Google 相册 App 自动备份为「动态照片」。
+把苹果 **Live Photo** 转换成一张 **Motion Photo**。
 
-一个容器搞定：内置 `heif-convert` 与 `exiftool`，自带 Web 面板，挂上目录就能跑。
+Live Photo 在磁盘上是两个文件（一张 `.HEIC` + 一段 `.MOV`），Motion Photo 是**一个** `.jpg`：
+前半是 JPG 图像，尾部直接拼接原始视频，再在 XMP 里写明视频的起始偏移。支持这个格式的相册
+会把它显示成一张「按住会动」的动态照片，而不是「照片 + 视频」两份。
+
+本项目只做这一件事：给它一个装满照片的目录，它递归扫描、按 UUID 配对、转码、写出成品。
+不读取任何相册软件的数据库，也不关心产物之后被同步、备份到哪里——那是你自己的事。
 
 ```mermaid
 flowchart LR
-    A["Immich 图库<br/>/source"] -->|扫描配对| B["HEIC + MOV"]
-    B --> C["HEIC → JPG"]
-    C --> D["拼接视频 + 写入动态照片元数据"]
-    D --> E["输出 /output<br/>保留目录结构"]
-    E -->|Syncthing| F["Pixel"]
-    F -->|Google 相册备份| G["动态照片"]
+    A["照片目录<br/>/source"] -->|递归扫描| B["按 ContentIdentifier 配对<br/>HEIC + MOV"]
+    B --> C["HEIC → JPG<br/>heif-convert"]
+    C --> D["保留 EXIF 时间/GPS<br/>写入 MicroVideo 元数据"]
+    D --> E["JPG + MOV 原流拼接"]
+    E --> F["输出 /output<br/>单张 .jpg，目录结构与源一致"]
 ```
 
-<img width="1916" height="909" alt="image" src="https://github.com/user-attachments/assets/6b5398a6-6157-4305-9f4e-c3fdf1fff3c1" />
+<img width="1916" height="909" alt="Web 面板" src="https://github.com/user-attachments/assets/6b5398a6-6157-4305-9f4e-c3fdf1fff3c1" />
 
 ---
 
@@ -22,13 +26,13 @@ flowchart LR
 
 | 能力 | 说明 |
 | --- | --- |
-| **UUID 配对** | 只认 `ContentIdentifier`，文件名、目录名、修改时间都不参与配对 |
+| **UUID 配对** | 只认 `ContentIdentifier`，文件名、目录名、修改时间都不参与配对——改名不会拆散一对实况 |
 | **增量扫描** | mtime 未变的文件不重复解析元数据、不重复算 MD5；已成功的任务不重复转换 |
-| **MD5 完整性校验** | 源文件与产物都记 MD5；支持周期性「深度校验」发现 `mtime 未变但内容变了` 的静默损坏（bit rot） |
+| **MD5 完整性校验** | 源文件与产物都记 MD5；支持周期性「深度校验」，发现 `mtime 未变但内容变了` 的静默损坏（bit rot） |
 | **并发控制** | 可配置并发数（默认 2），改完**立即生效**无需重启 |
 | **容错** | 失败指数退避重试（默认 3 次），容器重启后未完成的任务自动回到队列继续 |
 | **源目录只读** | 只以只读方式打开源文件，绝不往源目录写入 |
-| **完整图库模式** | 可选：输出目录 = 转换产物 + 已定型文件的原样副本，目录结构与源目录一致。转换成功的双文件只出 JPG；新到/刚失败的源文件先过观察期才写，避免同一张实况在 Pixel 上出现两份 |
+| **完整图库模式** | 可选：输出目录 = 转换产物 + 已定型文件的原样副本，目录结构与源目录一致。转换成功的双文件只出 JPG；新到/刚失败的源文件先过观察期才写，避免同一张实况以多种形态流出去 |
 | **Web 面板** | 仪表盘 / 任务列表 / 实时日志 / 设置，构建期打进二进制，不依赖任何外部服务 |
 | **界面** | 玻璃拟态 + 极光背景，按浏览器本地时间（06:00–18:00）自动切换日夜配色 |
 | **通知** | 以「一轮扫描 → 处理结束」为单位推送汇总，不逐张刷屏；自动适配钉钉/飞书/企微/Slack/Discord/ntfy/Bark |
@@ -40,28 +44,28 @@ flowchart LR
 ### 1. docker compose（推荐）
 
 ```bash
-docker pull andreasgyh/immich2motion:latest
+docker pull andreasgyh/live2motion:latest
 ```
 
-新建 `docker-compose.yml`，把三条挂载路径改成你自己的：
+新建 `docker-compose.yml`，把两条路径改成你自己的：
 
 ```yaml
 services:
-  immich2motion:
-    image: andreasgyh/immich2motion:latest
-    container_name: immich2motion
+  live2motion:
+    image: andreasgyh/live2motion:latest
+    container_name: live2motion
     restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
       - TZ=Asia/Shanghai
     volumes:
-      - /volume1/photo/immich/upload:/source:ro   # 源图库，必须 :ro
-      - /volume1/photo/motion:/output             # 输出目录，Syncthing 同步这里
-      - immich2motion_data:/data                  # 程序数据（具名卷）
+      - /volume1/photo:/source:ro            # 照片目录，必须 :ro
+      - /volume1/photo-motion:/output        # 转换产物
+      - live2motion_data:/data               # 程序数据（具名卷）
 
 volumes:
-  immich2motion_data:
+  live2motion_data:
 ```
 
 ```bash
@@ -79,14 +83,14 @@ docker compose logs -f
 ### 2. docker run
 
 ```bash
-docker run -d --name immich2motion \
+docker run -d --name live2motion \
   --restart unless-stopped \
   -p 8080:8080 \
-  -v /volume1/photo/immich/upload:/source:ro \
-  -v /volume1/photo/motion:/output \
-  -v immich2motion_data:/data \
+  -v /volume1/photo:/source:ro \
+  -v /volume1/photo-motion:/output \
+  -v live2motion_data:/data \
   -e TZ=Asia/Shanghai \
-  andreasgyh/immich2motion:latest
+  andreasgyh/live2motion:latest
 ```
 
 ### 3. 第一次使用建议
@@ -105,21 +109,21 @@ docker run -d --name immich2motion \
 
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `I2M_SOURCE_DIR` | `/source` | 源图库目录（只读挂载） |
-| `I2M_OUTPUT_DIR` | `/output` | 输出目录 |
-| `I2M_DATA_DIR` | `/data` | 数据目录 |
-| `I2M_WEB_ADDR` | `:8080` | Web 监听地址 |
-| `I2M_LOG_LEVEL` | `info` | `info` / `warn` / `error` |
-| `I2M_WORKERS` | `2` | 并发转换数（1-16） |
-| `I2M_JPG_QUALITY` | `100` | 输出 JPG 质量 |
-| `I2M_ENABLE_MD5` | `true` | MD5 完整性校验总开关 |
-| `I2M_AUTO_SCAN` | `true` | 是否后台持续扫描 |
-| `I2M_SCAN_INTERVAL_SEC` | `300` | 扫描间隔（秒，最小 10） |
-| `I2M_MAX_RETRIES` | `3` | 失败重试次数 |
-| `I2M_OUTPUT_SUFFIX` | `-motion` | 输出文件名后缀 |
-| `I2M_INCLUDE_UNCONVERTED` | `false` | 完整图库模式：把未参与转换的源文件原样复制到输出目录（见下文） |
-| `I2M_MIRROR_SETTLE_MIN` | `30` | 镜像观察期（分钟）：新到/刚失败的源文件先不写进输出目录，等定型；`0` = 立即写 |
-| `I2M_AUTO_THEME` | `true` | 面板是否按本地时间自动切换日间/夜间配色 |
+| `L2M_SOURCE_DIR` | `/source` | 源目录（只读挂载） |
+| `L2M_OUTPUT_DIR` | `/output` | 输出目录 |
+| `L2M_DATA_DIR` | `/data` | 数据目录 |
+| `L2M_WEB_ADDR` | `:8080` | Web 监听地址 |
+| `L2M_LOG_LEVEL` | `info` | `info` / `warn` / `error` |
+| `L2M_WORKERS` | `2` | 并发转换数（1-16） |
+| `L2M_JPG_QUALITY` | `100` | 输出 JPG 质量 |
+| `L2M_ENABLE_MD5` | `true` | MD5 完整性校验总开关 |
+| `L2M_AUTO_SCAN` | `true` | 是否后台持续扫描 |
+| `L2M_SCAN_INTERVAL_SEC` | `300` | 扫描间隔（秒，最小 10） |
+| `L2M_MAX_RETRIES` | `3` | 失败重试次数 |
+| `L2M_OUTPUT_SUFFIX` | `-motion` | 输出文件名后缀 |
+| `L2M_INCLUDE_UNCONVERTED` | `false` | 完整图库模式：把未参与转换的源文件原样复制到输出目录（见下文） |
+| `L2M_MIRROR_SETTLE_MIN` | `30` | 镜像观察期（分钟）：新到/刚失败的源文件先不写进输出目录，等定型；`0` = 立即写 |
+| `L2M_AUTO_THEME` | `true` | 面板是否按本地时间自动切换日间/夜间配色 |
 
 Web 设置页还可以改：输出文件名后缀、HEIC/视频扩展名、深度校验周期、日志保留条数、是否转换前校验源 MD5、是否保留原始 Orientation、是否开启完整图库模式、镜像观察期、通知。
 
@@ -163,7 +167,9 @@ Web 设置页还可以改：输出文件名后缀、HEIC/视频扩展名、深�
 
 - 视频**原样拼接，不转码**，字节数与源文件完全一致；
 - 写入 `MicroVideo` / `MicroVideoVersion` / `MicroVideoOffset` 三项元数据，`MicroVideoOffset` 精确等于 JPG 部分的字节长度；
-- 落盘前会回读校验，不通过直接判失败，绝不产出坏图。
+- 源文件的拍摄时间、GPS 等 EXIF 信息会带到新 JPG 上；
+- 落盘前会回读校验元数据，不通过直接判失败，绝不产出坏图；
+- 临时文件与成品同目录，写完才原子重命名，监听输出目录的工具不会看到半成品。
 
 ---
 
@@ -175,13 +181,12 @@ Web 设置页还可以改：输出文件名后缀、HEIC/视频扩展名、深�
 | --- | --- | --- |
 | 转换成功的 Live Photo | `IMG_0001-motion.jpg` | `IMG_0001-motion.jpg`，原始 HEIC/MOV **不**复制 |
 | 普通照片 / 未配对视频 / 其它文件 | 不输出 | 原样复制，相对路径与源目录一致 |
-| 适用场景 | 只想把实况补到别处 | 想用 `/output` 完全替代 `/source` 做同步 |
+| 适用场景 | 只想补出动态照片 | 想让 `/output` 成为一份完整、可直接拿去用的照片库 |
 
 ### 为什么需要这个开关
 
-Live Photo 在磁盘上是两个文件（HEIC + MOV），转换后是一个 JPG。如果同时把 `/source`
-（原始 HEIC + MOV）和 `/output`（转换后的 JPG）都同步给 Pixel，同一张实况就会以
-「静态照片 + 视频 + 实况照片」几种形态重复出现。
+Live Photo 在磁盘上是两个文件（HEIC + MOV），转换后是一个 JPG。如果源目录和输出目录
+被同一套流程对外提供，同一张实况就会以「静态照片 + 视频 + 动态照片」几种形态重复出现。
 
 开启后输出目录的形态是：
 
@@ -196,8 +201,8 @@ Live Photo 在磁盘上是两个文件（HEIC + MOV），转换后是一个 JPG�
 
 ### 哪些文件会被复制
 
-输出目录只写「终态」：写出去的文件如果之后还要删，对 Syncthing / Immich
-这种「看到就上传」的下游来说等于白删——它们早已收下那一份。所以宁可晚一点写，也不写完再撤。
+输出目录只写「终态」：写出去的文件如果之后还要删，对「看到就上传」的下游来说等于白删——
+它们早已收下那一份。所以宁可晚一点写，也不写完再撤。
 
 | 源文件状态 | 处理 |
 | --- | --- |
@@ -208,15 +213,15 @@ Live Photo 在磁盘上是两个文件（HEIC + MOV），转换后是一个 JPG�
 | 从未配对、已过观察期 | 原样复制 |
 | 刚出现的 HEIC/MOV（未过观察期） | 不写（可能只是实况的一半） |
 | 非转换类扩展名（JPG / PNG / DNG / AAE …） | 立即复制，永不删除 |
-| 隐藏文件、`~syncthing~*.tmp`、`*.tmp` / `*.part` 等临时文件 | 跳过 |
+| 隐藏文件、同步或下载工具产生的临时文件（`*.tmp` / `*.part` / `*.crdownload` 等） | 跳过 |
 | 源目录里已删除 / 改名的文件 | 对应副本一并删除 |
 
 ### 观察期（为什么不是「一到就复制」）
 
-Immich / Syncthing 经常把实况的 HEIC 和 MOV 分两次送到：HEIC 先落地，MOV 几分钟后才到。
-如果 HEIC 一到就复制进 `/output`，同步端立刻把它当普通照片传走；等 MOV 到达、转换完成，
-输出目录里那份 HEIC 虽然被删了，上游那一份却还在——删除撤不回已经上传的内容，
-Pixel 上于是同时出现「静态照片」和「实况照片」。
+实况的两个文件经常不是同时到达的：HEIC 先落地，MOV 几分钟后才来（取决于上游怎么传）。
+如果 HEIC 一到就复制进 `/output`，下游立刻把它当普通照片收走；等 MOV 到达、转换完成，
+输出目录里那份 HEIC 虽然被删了，传出去的那一份却还在——删除撤不回已经流出上游的内容，
+结果就是同一张实况出现两份。
 
 所以新出现的 HEIC/MOV（以及刚失败的配对）会先按住 `镜像观察期`（默认 **30 分钟**，
 可在设置页改，`0` = 不等待）。观察期内它们不出现在 `/output`，等定型后再一次性决定写原件还是等转换。
@@ -261,13 +266,13 @@ Pixel 上于是同时出现「静态照片」和「实况照片」。
 | 系统故障 | 环境自检失败、扫描失败，立即推送 | 开 |
 
 **以「轮」为单位推送，不逐张推。** 定时扫描什么都没发现时一条都不发；
-长图库的转换可能比扫描间隔更久，这时连续的几次扫描会并进同一轮，
+照片很多、转换比赛道扫描间隔更久时，连续的几次扫描会并进同一轮，
 不会被切成若干条「0 成功」的碎片消息。
 
 汇总示例：
 
 ```
-[immich2motion] 本次处理完成（1 个失败）
+[live2motion] 本次处理完成（1 个失败）
 扫描 1,284 个文件（HEIC 642 / 视频 642），新增配对 12 组
 转换成功 11，失败 1
 原样复制未转换文件 3 个
@@ -300,36 +305,25 @@ Pixel 上于是同时出现「静态照片」和「实况照片」。
 
 ```bash
 # 扫描一次 + 处理完队列后退出
-docker exec -it immich2motion immich2motion --scan-once
+docker exec -it live2motion live2motion --scan-once
 
 # 只扫描配对，不转换，打印统计
-docker exec -it immich2motion immich2motion --dry-run
+docker exec -it live2motion live2motion --dry-run
 ```
 
 ---
 
 ## 注意事项
 
-- **只输出 JPG**：HEIC 作为 Motion Photo 容器在 Google 相册侧不可靠，固定输出 `.jpg`。
-- **视频不转码**：直接原流拼接，速度取决于磁盘 IO。若 Immich 里存的是 `.mp4`，按扩展名配置扫描即可（默认已包含）。
+- **输入是成对的文件**：`.HEIC` + `.MOV`（部分图库会把视频存成 `.mp4`，默认已支持）。
+  程序靠 `ContentIdentifier` 认出它们是一对，所以必须能看到苹果写入的这个元数据。
 - **配对不做模糊匹配**：UUID 不一致就是配不上，宁可报「未配对」也不猜。孤儿文件（有 HEIC 无视频 / 有视频无 HEIC）只统计不生成任务。
+- **只输出 JPG**：HEIC 作为 Motion Photo 容器兼容性差，固定输出 `.jpg`。
+- **视频不转码**：直接原流拼接，速度取决于磁盘 IO，转换过程几乎不耗 CPU。
 - **普通照片不参与转换**：没有 `ContentIdentifier` 的 HEIC 会被标记出来，不参与配对；开启完整图库模式时它们才会被原样复制。
 - **Orientation**：默认不复制原始 `EXIF:Orientation`，避免看图软件二次旋转。若发现照片方向不对，可在设置页打开「保留原始 EXIF Orientation」。
 - **权限**：容器默认以 root 运行以便写入宿主挂载目录。需要降权时在 compose 里加 `user: "1000:1000"`，并确保 `/output`、`/data` 对该 UID 可写。
-- **完整图库模式是「最终态同步」**：它只负责把源目录里该出现的文件复制过去、把不再需要的副本删掉。你在 `/output` 里额外放的东西不会被清理。首次开启会一次性复制整个图库（除已转换的实况原件），大图库上这一步会跑得比较久，期间转换仍照常进行。
-
-### Syncthing 侧建议
-
-在同步文件夹的 `.stignore` 里加：
-
-```
-(?i)*.tmp
-(?).i2m-*
-```
-
-临时文件在同目录下以 `.i2m-*` 命名，写完才原子重命名为最终文件，正常情况下 Syncthing 不会看到半成品，加上忽略规则更保险。
-
-Pixel 端建议让 Google 相册只**备份**该目录（选择「设备文件夹」），并保留原图；上传后 Google 相册会把它识别为动态照片。
+- **完整图库模式是「最终态同步」**：它只负责把源目录里该出现的文件复制过去、把不再需要的副本删掉。你在 `/output` 里额外放的东西不会被清理。首次开启会一次性复制整个目录（除已转换的实况原件），文件多时会跑得比较久，期间转换仍照常进行。
 
 ---
 

@@ -1,16 +1,19 @@
-# immich2motion 单容器部署示例
+# live2motion 单容器部署示例
 #
 # 三条挂载的职责：
-#   /source   Immich 图库目录，必须只读挂载（:ro）
-#   /output   生成的 Motion Photo 输出目录，交给 Syncthing 同步到 Pixel
-#   /data     SQLite 数据库与持久化数据
+#   /source   照片库目录（只读扫描，程序不会往里写）
+#   /output   转换产物目录
+#   /data     数据库与程序状态
 #
 # 首次启动前把下面的宿主路径改成你自己的实际路径。
+#
+# 本项目只负责把 Live Photo 转成 Motion Photo，产物如何同步、备份、上传，
+# 由你自己用任何工具决定，与容器本身无关。
 
 services:
-  immich2motion:
-    image: andreasgyh/immich2motion:latest
-    container_name: immich2motion
+  live2motion:
+    image: andreasgyh/live2motion:latest
+    container_name: live2motion
     restart: unless-stopped
 
     # 想用本地源码构建（改过代码时）把 build 段取消注释，image 换成自定义名字：
@@ -19,46 +22,46 @@ services:
     #   args:
     #     VERSION: "0.1.0"
     #     REBUILD_CSS: "true"
-    # image: immich2motion:0.1.0
+    # image: live2motion:0.1.0
 
     ports:
       - "8080:8080"
 
     volumes:
-      # 只读挂载：程序不会（也不允许）修改源图库
-      - /volume1/photo/immich/upload:/source:ro
-      # 输出目录：建议与 Syncthing 的同步目录一致
-      - /volume1/photo/motion:/output
-      # SQLite 放在具名卷里。
-      # 注意：不要用 Windows/macOS 的 bind mount（如 D:\i2m\data:/data）——
+      # 只读挂载：程序不会（也不允许）修改源照片
+      - /volume1/photo:/source:ro
+      # 输出目录：转换后的 Motion Photo 写在这里
+      - /volume1/photo-motion:/output
+      # 数据库放在具名卷里。
+      # 注意：不要用 Windows/macOS 的 bind mount（如 D:\l2m\data:/data）——
       # Desktop 的 9p/drvfs 对 SQLite WAL 的 mmap 与文件锁支持不完整，
       # 会出现「容器内已提交、宿主机读到旧快照」，容器被强杀时还可能丢数据。
       # Linux/NAS 上 bind mount 是安全的，想改成宿主路径就替换下面这行。
-      - immich2motion_data:/data
+      - live2motion_data:/data
 
     environment:
       TZ: Asia/Shanghai
-      I2M_WEB_ADDR: ":8080"
-      I2M_LOG_LEVEL: info
+      L2M_WEB_ADDR: ":8080"
+      L2M_LOG_LEVEL: info
       # 以下为首次启动的默认值；之后以 Web 设置页（存在 /data 的数据库里）为准
-      I2M_WORKERS: "2"
-      I2M_JPG_QUALITY: "100"
-      I2M_ENABLE_MD5: "true"
-      I2M_AUTO_SCAN: "true"
-      I2M_SCAN_INTERVAL_SEC: "300"
-      I2M_MAX_RETRIES: "3"
-      I2M_OUTPUT_SUFFIX: "-motion"
+      L2M_WORKERS: "2"
+      L2M_JPG_QUALITY: "100"
+      L2M_ENABLE_MD5: "true"
+      L2M_AUTO_SCAN: "true"
+      L2M_SCAN_INTERVAL_SEC: "300"
+      L2M_MAX_RETRIES: "3"
+      L2M_OUTPUT_SUFFIX: "-motion"
       # 完整图库模式：输出目录 = 转换产物 + 已定型文件的原样副本（相对路径与 /source 一致）。
-      # 打开后转换成功的 Live Photo 只出 JPG，原始 HEIC/MOV 不再复制，避免 Pixel 上重复；
-      # 图库里其它照片/视频则原样同步过去。同步目录只挂 /output 时建议开启。
-      I2M_INCLUDE_UNCONVERTED: "false"
+      # 打开后转换成功的 Live Photo 只出 JPG，原始 HEIC/MOV 不再复制，避免同一张实况
+      # 以多种形态流到下游；图库里其它照片/视频则原样复制过去。
+      L2M_INCLUDE_UNCONVERTED: "false"
       # 镜像观察期（分钟）：新到/刚失败的源文件先不写进输出目录，等定型再决定，
-      # 避免"先写一份原件、转换成功后再删"——删除撤不回已经同步出去的那一份。
-      I2M_MIRROR_SETTLE_MIN: "30"
+      # 避免"先写一份原件、转换成功后再删"——删除撤不回已经流出去的那一份。
+      L2M_MIRROR_SETTLE_MIN: "30"
 
     # 容器内已定义 HEALTHCHECK，这里无需重复；如需更宽松可显式覆盖
     # healthcheck:
-    #   test: ["CMD", "/usr/local/bin/immich2motion", "--health-check"]
+    #   test: ["CMD", "/usr/local/bin/live2motion", "--health-check"]
     #   interval: 30s
     #   timeout: 5s
     #   retries: 3
@@ -74,24 +77,5 @@ services:
         max-file: "3"
 
 volumes:
-  immich2motion_data:
-    name: immich2motion_data
-
-  # ---------------------------------------------------------------------------
-  # 可选：同一台机器上跑 Syncthing，把 /output 同步到 Pixel
-  # 若已有 Syncthing 实例，删掉这一段，改为在现有实例里添加该文件夹即可
-  # ---------------------------------------------------------------------------
-  # syncthing:
-  #   image: syncthing/syncthing:latest
-  #   container_name: syncthing
-  #   restart: unless-stopped
-  #   environment:
-  #     PUID: "1000"
-  #     PGID: "1000"
-  #   volumes:
-  #     - ./syncthing/config:/var/syncthing
-  #     - /volume1/photo/motion:/data/motion
-  #   ports:
-  #     - "8384:8384"
-  #     - "22000:22000/tcp"
-  #     - "22000:22000/udp"
+  live2motion_data:
+    name: live2motion_data

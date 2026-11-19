@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/immich2motion/immich2motion/internal/engine"
+	"github.com/AndreasByrsting/live2motion/internal/engine"
 )
 
 // handleSSE 把后台日志、任务进度、统计变化实时推给浏览器。

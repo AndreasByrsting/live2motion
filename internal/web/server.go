@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/immich2motion/immich2motion/internal/config"
-	"github.com/immich2motion/immich2motion/internal/engine"
-	"github.com/immich2motion/immich2motion/internal/store"
+	"github.com/AndreasByrsting/live2motion/internal/config"
+	"github.com/AndreasByrsting/live2motion/internal/engine"
+	"github.com/AndreasByrsting/live2motion/internal/store"
 )
 
 //go:embed templates assets

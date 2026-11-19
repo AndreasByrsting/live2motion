@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/immich2motion/immich2motion/internal/config"
-	"github.com/immich2motion/immich2motion/internal/engine"
-	"github.com/immich2motion/immich2motion/internal/store"
+	"github.com/AndreasByrsting/live2motion/internal/config"
+	"github.com/AndreasByrsting/live2motion/internal/engine"
+	"github.com/AndreasByrsting/live2motion/internal/store"
 )
 
 // 外部工具缺失时必须闭合闸门：worker 不去领任务，队列保持 pending。
@@ -59,8 +59,8 @@ func TestQueueIsPreservedWhenToolsMissing(t *testing.T) {
 
 	cfg := config.Config{
 		DataDir:  dir,
-		ExifBin:  "i2m-definitely-missing-exiftool",
-		HeifBin:  "i2m-definitely-missing-heif",
+		ExifBin:  "l2m-definitely-missing-exiftool",
+		HeifBin:  "l2m-definitely-missing-heif",
 		LogLevel: "error",
 	}
 	settings := config.DefaultSettings()

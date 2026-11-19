@@ -3,7 +3,7 @@ package library
 import (
 	"testing"
 
-	"github.com/immich2motion/immich2motion/internal/store"
+	"github.com/AndreasByrsting/live2motion/internal/store"
 )
 
 func heic(id int64, rel, cid string) store.Asset {
@@ -127,7 +127,7 @@ func TestShouldSkipDir(t *testing.T) {
 			t.Errorf("%q 应被跳过", name)
 		}
 	}
-	keep := []string{"2024", "photos", "Immich", "upload"}
+	keep := []string{"2024", "photos", "LivePhotos", "upload"}
 	for _, name := range keep {
 		if ShouldSkipDir(name) {
 			t.Errorf("%q 不应被跳过", name)
@@ -135,9 +135,9 @@ func TestShouldSkipDir(t *testing.T) {
 	}
 }
 
-// 镜像复制与扫描共用这套规则：临时文件不能进输出目录，否则 Syncthing 会把半成品同步出去。
+// 镜像复制与扫描共用这套规则：临时文件不能进输出目录，否则下游会把半成品同步出去。
 func TestShouldSkipFileName(t *testing.T) {
-	skip := []string{".DS_Store", ".i2m-1234.tmp", "~syncthing~IMG_1.tmp", "photo.jpg.tmp", "x.partial"}
+	skip := []string{".DS_Store", ".l2m-1234.tmp", "~syncthing~IMG_1.tmp", "photo.jpg.tmp", "x.partial"}
 	for _, name := range skip {
 		if !ShouldSkipFileName(name) {
 			t.Errorf("%q 应被跳过", name)

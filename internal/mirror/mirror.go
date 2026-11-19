@@ -7,11 +7,11 @@
 //	<output>/2024/05/IMG_0002.HEIC         ← 普通照片，原样复制
 //	<output>/2024/06/VID_0001.MOV          ← 没配上对的视频，原样复制
 //
-// 目录结构与源目录完全一致，所以 Syncthing 同步过去之后，Pixel 上既完整又不重复。
+// 目录结构与源目录完全一致，所以 同步出去之后，下游看到的图库既完整又不重复。
 //
 // # 只写终态（重要）
 //
-// 输出目录一旦写出文件，下游（Syncthing → Immich / 手机）会立刻取走上传；
+// 输出目录一旦写出文件，下游（同步工具 / 相册服务）会立刻取走上传；
 // 之后再删除并不能撤回已经上传的那一份。所以写入必须「白名单化」：
 //
 //	非转换类扩展名（JPG/PNG/DNG/AAE…）→ 永远不会变成 Motion Photo，直接复制；
@@ -31,8 +31,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/immich2motion/immich2motion/internal/library"
-	"github.com/immich2motion/immich2motion/internal/store"
+	"github.com/AndreasByrsting/live2motion/internal/library"
+	"github.com/AndreasByrsting/live2motion/internal/store"
 )
 
 // Logger 与 library.Logger 一致，由 engine 注入，落库并广播到 Web。
@@ -83,7 +83,7 @@ type Stats struct {
 const (
 	batchSize  = 200     // 每累积多少条记录提交一次
 	copyBufLen = 1 << 20 // 1 MB 复制缓冲
-	tmpPattern = ".i2m-*.tmp"
+	tmpPattern = ".l2m-*.tmp"
 )
 
 // Run 执行一次镜像同步：遍历源目录，把「允许写入」的文件复制到输出目录，
@@ -358,7 +358,7 @@ func sameFingerprint(rec store.MirrorRecord, fi os.FileInfo) bool {
 }
 
 // copyFile 把 src 复制到 dst：同目录临时文件 → 校验写入长度 → 原子 rename。
-// 保留源文件 mtime，Syncthing 两侧时间一致，增量判断也更直观。
+// 保留源文件 mtime，两侧时间一致，增量判断也更直观。
 func copyFile(ctx context.Context, src, dst string, mtime time.Time) (int64, error) {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return 0, fmt.Errorf("创建输出目录失败: %w", err)

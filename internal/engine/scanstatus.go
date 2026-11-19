@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/immich2motion/immich2motion/internal/library"
+	"github.com/AndreasByrsting/live2motion/internal/library"
 )
 
 // ScanStatus 扫描的实时状态。

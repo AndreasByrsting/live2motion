@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/immich2motion/immich2motion/internal/config"
+	"github.com/AndreasByrsting/live2motion/internal/config"
 )
 
 const settingsKey = "app_settings"

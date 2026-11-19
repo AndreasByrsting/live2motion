@@ -1,6 +1,6 @@
 # 构建产物
-/immich2motion
-/immich2motion.exe
+/live2motion
+/live2motion.exe
 /dist/
 
 # 运行时数据

@@ -9,7 +9,7 @@ import (
 // MirrorRecord 一条「原样复制到输出目录」的记录。
 //
 // 之所以要落库而不是靠 stat 现场判断：清理副本时（源文件消失、或转换成功后不再需要原件）
-// 只有存在记录才敢删文件。输出目录归 Syncthing 与用户共用，误删比多留一份危险得多。
+// 只有存在记录才敢删文件。输出目录归下游与用户共用，误删比多留一份危险得多。
 type MirrorRecord struct {
 	RelPath   string
 	SizeBytes int64

@@ -9,12 +9,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/immich2motion/immich2motion/internal/config"
-	"github.com/immich2motion/immich2motion/internal/convert"
-	"github.com/immich2motion/immich2motion/internal/library"
-	"github.com/immich2motion/immich2motion/internal/mirror"
-	"github.com/immich2motion/immich2motion/internal/store"
-	"github.com/immich2motion/immich2motion/internal/webhook"
+	"github.com/AndreasByrsting/live2motion/internal/config"
+	"github.com/AndreasByrsting/live2motion/internal/convert"
+	"github.com/AndreasByrsting/live2motion/internal/library"
+	"github.com/AndreasByrsting/live2motion/internal/mirror"
+	"github.com/AndreasByrsting/live2motion/internal/store"
+	"github.com/AndreasByrsting/live2motion/internal/webhook"
 )
 
 // maxWorkerGoroutines worker 池的固定 goroutine 数量，
@@ -407,7 +407,7 @@ func (e *Engine) runJob(ctx context.Context, job *store.JobView) {
 
 	// 完整图库模式：转换成功后，源目录里的 HEIC/MOV 已经合成进这一个 JPG。
 	// 如果之前因为配对失败/未配对把它们复制到了输出目录，这里必须清掉，
-	// 否则 Pixel 侧会同时收到「原件」和「实况 JPG」，又变成重复。
+	// 否则下游会同时收到「原件」和「实况 JPG」，又变成重复。
 	if st.IncludeUnconverted {
 		if n, perr := e.mirrorer.PruneSources(ctx, st.SourceDir, st.OutputDir,
 			[]string{pair.HeicRelPath, pair.VideoRelPath}); perr != nil {
@@ -571,7 +571,7 @@ func (e *Engine) SendTestWebhook() error {
 	return e.notifier.SendNow(webhook.Event{
 		Kind:   webhook.KindTest,
 		Title:  "测试消息",
-		Detail: "这是一条来自 immich2motion 的测试推送，收到即表示配置正确。",
+		Detail: "这是一条来自 live2motion 的测试推送，收到即表示配置正确。",
 	})
 }
 
@@ -685,8 +685,8 @@ func (e *Engine) TriggerMirror(trigger string) {
 
 // mirrorAllow 计算「允许原样写入输出目录」的源文件白名单。
 //
-// 输出目录是「只写终态」的：写出去的文件随后被删除，对 Syncthing / Immich
-// 这类看到即上传的下游来说等于白删——它们早已收下那一份。所以这里回答的是
+// 输出目录是「只写终态」的：写出去的文件随后被删除，对「看到就上传」的下游
+// 来说等于白删——它们早已收下那一份。所以这里回答的是
 // 「这个源文件现在就能确定不会被合成成 Motion Photo 吗」，只有答案为是的才放行。
 //
 //   - 已转换成功         → 不放行（原件已经在这一张 JPG 里了）

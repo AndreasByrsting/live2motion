@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/immich2motion/immich2motion/internal/config"
-	"github.com/immich2motion/immich2motion/internal/engine"
-	"github.com/immich2motion/immich2motion/internal/library"
-	"github.com/immich2motion/immich2motion/internal/store"
+	"github.com/AndreasByrsting/live2motion/internal/config"
+	"github.com/AndreasByrsting/live2motion/internal/engine"
+	"github.com/AndreasByrsting/live2motion/internal/library"
+	"github.com/AndreasByrsting/live2motion/internal/store"
 )
 
 // 端到端验证：扫描 → 读 ContentIdentifier → MD5 → 配对 → 入队 → worker 转换 → 落盘 → 数据库状态。
@@ -29,10 +29,10 @@ import (
 // heic_exts 配成 .jpg，ContentIdentifier 直接写入数据库（模拟 exiftool 从 Apple MakerNotes
 // 读到 UUID 的结果）。除 HEIC 解码本身，其余链路全部真实执行。
 func TestEngineScanPairConvert(t *testing.T) {
-	exifBin := os.Getenv("I2M_TEST_EXIF_BIN")
-	heifBin := os.Getenv("I2M_TEST_HEIF_BIN")
+	exifBin := os.Getenv("L2M_TEST_EXIF_BIN")
+	heifBin := os.Getenv("L2M_TEST_HEIF_BIN")
 	if exifBin == "" || heifBin == "" {
-		t.Skip("未设置 I2M_TEST_EXIF_BIN / I2M_TEST_HEIF_BIN，跳过集成测试")
+		t.Skip("未设置 L2M_TEST_EXIF_BIN / L2M_TEST_HEIF_BIN，跳过集成测试")
 	}
 
 	root := t.TempDir()

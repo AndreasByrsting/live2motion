@@ -16,22 +16,22 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/immich2motion/immich2motion/internal/config"
-	"github.com/immich2motion/immich2motion/internal/convert"
-	"github.com/immich2motion/immich2motion/internal/library"
-	"github.com/immich2motion/immich2motion/internal/store"
+	"github.com/AndreasByrsting/live2motion/internal/config"
+	"github.com/AndreasByrsting/live2motion/internal/convert"
+	"github.com/AndreasByrsting/live2motion/internal/library"
+	"github.com/AndreasByrsting/live2motion/internal/store"
 )
 
 // 运行方式（需要真实的 exiftool；heif 解码器可用脚本模拟）：
 //
-//	I2M_TEST_EXIF_BIN=/path/to/exiftool \
-//	I2M_TEST_HEIF_BIN=/path/to/fake-heif-convert \
+//	L2M_TEST_EXIF_BIN=/path/to/exiftool \
+//	L2M_TEST_HEIF_BIN=/path/to/fake-heif-convert \
 //	go test -tags integration ./internal/convert/ -v
 func TestPipelineExecuteEndToEnd(t *testing.T) {
-	heifBin := os.Getenv("I2M_TEST_HEIF_BIN")
-	exifBin := os.Getenv("I2M_TEST_EXIF_BIN")
+	heifBin := os.Getenv("L2M_TEST_HEIF_BIN")
+	exifBin := os.Getenv("L2M_TEST_EXIF_BIN")
 	if heifBin == "" || exifBin == "" {
-		t.Skip("未设置 I2M_TEST_HEIF_BIN / I2M_TEST_EXIF_BIN，跳过集成测试")
+		t.Skip("未设置 L2M_TEST_HEIF_BIN / L2M_TEST_EXIF_BIN，跳过集成测试")
 	}
 
 	dir := t.TempDir()
@@ -190,7 +190,7 @@ func TestPipelineExecuteEndToEnd(t *testing.T) {
 	// 8) 临时文件必须清理干净
 	entries, _ := os.ReadDir(filepath.Dir(res.AbsPath))
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".i2m-") {
+		if strings.HasPrefix(e.Name(), ".l2m-") {
 			t.Errorf("残留临时文件: %s", e.Name())
 		}
 	}

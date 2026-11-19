@@ -103,7 +103,7 @@ func (s *Store) CountPairs(ctx context.Context, sourceRoot string) (int64, error
 
 // PairJobState 一组配对及其任务的当前状态。
 // 「完整图库模式」据此判断某个源文件最终会不会被转换：
-// 会转换 → 不能原样复制（否则 Pixel 侧 HEIC + JPG 重复）；
+// 会转换 → 不能原样复制（否则下游 HEIC + JPG 重复）；
 // 不会转换 → 必须原样复制，否则图库不完整。
 type PairJobState struct {
 	HeicRelPath  string

@@ -1,4 +1,4 @@
-module github.com/immich2motion/immich2motion
+module github.com/AndreasByrsting/live2motion
 
 go 1.23
 

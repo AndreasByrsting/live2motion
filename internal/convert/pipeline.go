@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/immich2motion/immich2motion/internal/config"
-	"github.com/immich2motion/immich2motion/internal/library"
-	"github.com/immich2motion/immich2motion/internal/store"
+	"github.com/AndreasByrsting/live2motion/internal/config"
+	"github.com/AndreasByrsting/live2motion/internal/library"
+	"github.com/AndreasByrsting/live2motion/internal/store"
 )
 
 // Pipeline 执行单组 Live Photo 的转换：HEIC→JPG、写 XMP、拼接 MOV、校验、原子落盘。
@@ -58,7 +58,7 @@ const (
 )
 
 // Execute 执行一次完整转换。源文件只以只读方式打开，输出先写同目录临时文件，
-// 校验通过后再原子 rename，避免 Syncthing 同步到半成品。
+// 校验通过后再原子 rename，避免下游同步到半成品。
 func (p *Pipeline) Execute(ctx context.Context, job Job) (*Result, error) {
 	st := job.Settings
 	report := job.Progress
@@ -98,7 +98,7 @@ func (p *Pipeline) Execute(ctx context.Context, job Job) (*Result, error) {
 	report(stagePrepare, 0.02)
 
 	// 1) HEIC → JPG（临时文件与最终产物同目录，保证 rename 不跨设备）
-	tmpJPG, err := os.CreateTemp(outDir, ".i2m-*.jpg")
+	tmpJPG, err := os.CreateTemp(outDir, ".l2m-*.jpg")
 	if err != nil {
 		return nil, fmt.Errorf("创建临时文件失败: %w", err)
 	}
@@ -130,7 +130,7 @@ func (p *Pipeline) Execute(ctx context.Context, job Job) (*Result, error) {
 	report(stageXMP, 0.62)
 
 	// 3) 拼接：JPG 直接流式接 MOV，不转码不动源文件
-	tmpOut, err := os.CreateTemp(outDir, ".i2m-*.tmp")
+	tmpOut, err := os.CreateTemp(outDir, ".l2m-*.tmp")
 	if err != nil {
 		return nil, fmt.Errorf("创建输出临时文件失败: %w", err)
 	}

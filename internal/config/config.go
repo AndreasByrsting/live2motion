@@ -31,13 +31,13 @@ type Config struct {
 // FromEnv 读取环境变量并填充默认值。
 func FromEnv() Config {
 	c := Config{
-		DataDir:  env("I2M_DATA_DIR", "/data"),
-		WebAddr:  env("I2M_WEB_ADDR", ":8080"),
-		LogLevel: strings.ToLower(env("I2M_LOG_LEVEL", "info")),
-		HeifBin:  env("I2M_HEIF_CONVERT", "heif-convert"),
-		ExifBin:  env("I2M_EXIFTOOL", "exiftool"),
+		DataDir:  env("L2M_DATA_DIR", "/data"),
+		WebAddr:  env("L2M_WEB_ADDR", ":8080"),
+		LogLevel: strings.ToLower(env("L2M_LOG_LEVEL", "info")),
+		HeifBin:  env("L2M_HEIF_CONVERT", "heif-convert"),
+		ExifBin:  env("L2M_EXIFTOOL", "exiftool"),
 	}
-	c.DBPath = env("I2M_DB_PATH", filepath.Join(c.DataDir, "immich2motion.db"))
+	c.DBPath = env("L2M_DB_PATH", filepath.Join(c.DataDir, "live2motion.db"))
 	return c
 }
 
@@ -52,37 +52,37 @@ func (c Config) EnsureDataDir() error {
 // NewSettingsFromEnv 用环境变量初始化默认设置（仅首次建库时使用）。
 func NewSettingsFromEnv() Settings {
 	s := DefaultSettings()
-	s.SourceDir = env("I2M_SOURCE_DIR", "/source")
-	s.OutputDir = env("I2M_OUTPUT_DIR", "/output")
+	s.SourceDir = env("L2M_SOURCE_DIR", "/source")
+	s.OutputDir = env("L2M_OUTPUT_DIR", "/output")
 
-	if v, ok := envInt("I2M_WORKERS"); ok {
+	if v, ok := envInt("L2M_WORKERS"); ok {
 		s.Workers = v
 	}
-	if v, ok := envInt("I2M_JPG_QUALITY"); ok {
+	if v, ok := envInt("L2M_JPG_QUALITY"); ok {
 		s.JPGQuality = v
 	}
-	if v, ok := envInt("I2M_SCAN_INTERVAL_SEC"); ok {
+	if v, ok := envInt("L2M_SCAN_INTERVAL_SEC"); ok {
 		s.ScanIntervalSec = v
 	}
-	if v, ok := envBool("I2M_ENABLE_MD5"); ok {
+	if v, ok := envBool("L2M_ENABLE_MD5"); ok {
 		s.EnableMD5 = v
 	}
-	if v, ok := envBool("I2M_AUTO_SCAN"); ok {
+	if v, ok := envBool("L2M_AUTO_SCAN"); ok {
 		s.AutoScan = v
 	}
-	if v, ok := envInt("I2M_MAX_RETRIES"); ok {
+	if v, ok := envInt("L2M_MAX_RETRIES"); ok {
 		s.MaxRetries = v
 	}
-	if v := env("I2M_OUTPUT_SUFFIX", ""); v != "" {
+	if v := env("L2M_OUTPUT_SUFFIX", ""); v != "" {
 		s.OutputSuffix = v
 	}
-	if v, ok := envBool("I2M_INCLUDE_UNCONVERTED"); ok {
+	if v, ok := envBool("L2M_INCLUDE_UNCONVERTED"); ok {
 		s.IncludeUnconverted = v
 	}
-	if v, ok := envInt("I2M_MIRROR_SETTLE_MIN"); ok {
+	if v, ok := envInt("L2M_MIRROR_SETTLE_MIN"); ok {
 		s.MirrorSettleMin = v
 	}
-	if v, ok := envBool("I2M_AUTO_THEME"); ok {
+	if v, ok := envBool("L2M_AUTO_THEME"); ok {
 		s.AutoTheme = v
 	}
 	s.Normalize()

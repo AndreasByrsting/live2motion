@@ -4,7 +4,7 @@ import (
 	"path"
 	"sort"
 
-	"github.com/immich2motion/immich2motion/internal/store"
+	"github.com/AndreasByrsting/live2motion/internal/store"
 )
 
 // PairCandidate 一组可配对的 HEIC + 视频。
@@ -27,7 +27,7 @@ type PairStats struct {
 //
 // 规则（配对只看 UUID，绝不看文件名）：
 //  1. 同一 ContentIdentifier 下的 HEIC 与视频才可能配对；
-//  2. 优先配对同一目录内的文件（Immich 通常同目录存放）；
+//  2. 优先配对同一目录内的文件（多数图库同目录存放）；
 //  3. 剩余文件按路径排序一对一贪心匹配，保证结果确定可复现；
 //  4. 多出来的记为孤儿，不生成任务，只统计告警。
 func BuildPairs(assets []store.Asset) ([]PairCandidate, PairStats) {

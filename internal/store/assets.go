@@ -281,7 +281,7 @@ func (s *Store) ListSettledUnpairedAssets(ctx context.Context, sourceRoot string
 //
 // 这是完整图库模式的观察期依据：新到的 HEIC/MOV 可能只是 Live Photo 的一半，
 // 另一半几分钟后才被同步/导入。此时把这一半原样写进输出目录，
-// 等配对成功、转换完成后又得把它删掉——对 Syncthing / Immich 这种
+// 等配对成功、转换完成后又得把它删掉——对「看到就上传」的下游这种
 // 「看到即上传」的下游来说，删掉并不能撤回已经上传的那一份，重复就此产生。
 //
 // 因此这类文件在 first_seen_at + 观察期之前一律不复制，等它定型。

@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/immich2motion/immich2motion/internal/config"
-	"github.com/immich2motion/immich2motion/internal/store"
+	"github.com/AndreasByrsting/live2motion/internal/config"
+	"github.com/AndreasByrsting/live2motion/internal/store"
 )
 
 // Logger 由 engine 注入，负责落库并广播到 Web。
@@ -22,7 +22,7 @@ type Logger interface {
 	Error(scope, format string, args ...any)
 }
 
-// skipDirNames 明确跳过的目录：群晖缩略图、回收站、Syncthing 元数据等。
+// skipDirNames 明确跳过的目录：群晖缩略图、回收站、同步工具元数据等。
 var skipDirNames = map[string]struct{}{
 	"@eaDir":      {},
 	"#recycle":    {},
@@ -33,7 +33,7 @@ var skipDirNames = map[string]struct{}{
 	"lost+found":  {},
 }
 
-// ShouldSkipDir 判断目录名是否应跳过：隐藏目录、群晖缩略图、回收站、Syncthing 元数据等。
+// ShouldSkipDir 判断目录名是否应跳过：隐藏目录、群晖缩略图、回收站、同步工具元数据等。
 // 扫描与「完整图库模式」的镜像复制共用同一套规则，保证两边看到的文件集合一致。
 func ShouldSkipDir(name string) bool {
 	if name == "" || name == "." || name == ".." {
@@ -46,7 +46,7 @@ func ShouldSkipDir(name string) bool {
 	return ok
 }
 
-// ShouldSkipFileName 判断文件名是否应跳过：隐藏文件、Syncthing/编辑器临时文件。
+// ShouldSkipFileName 判断文件名是否应跳过：隐藏文件、同步工具/编辑器临时文件。
 // 这些文件不属于图库内容，复制过去只会给同步端添乱。
 func ShouldSkipFileName(name string) bool {
 	if name == "" || name == "." || name == ".." {

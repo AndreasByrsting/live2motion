@@ -6,14 +6,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/immich2motion/immich2motion/internal/config"
-	"github.com/immich2motion/immich2motion/internal/engine"
-	"github.com/immich2motion/immich2motion/internal/store"
+	"github.com/AndreasByrsting/live2motion/internal/config"
+	"github.com/AndreasByrsting/live2motion/internal/engine"
+	"github.com/AndreasByrsting/live2motion/internal/store"
 )
 
 // 完整图库模式下，输出目录里哪些文件出现/消失，完全由「这组实况会不会被转换」决定：
 //   - 转换失败 → 原件原样送出（图库不能缺照片）
-//   - 转换成功 → 原件副本必须删掉（否则 Pixel 上 HEIC + JPG 重复）
+//   - 转换成功 → 原件副本必须删掉（否则下游 HEIC + JPG 重复）
 func TestMirrorPlanFollowsJobStatus(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "source")
@@ -130,10 +130,10 @@ func TestMirrorPlanFollowsJobStatus(t *testing.T) {
 
 // 观察期：刚落地的 HEIC/MOV、刚失败的配对都先不进输出目录。
 //
-// 这是「只写终态」的核心防线。真人场景：Immich / Syncthing 把实况的两半分批送来，
+// 这是「只写终态」的核心防线。真人场景：上游把实况的两半分批送来，
 // HEIC 先到、MOV 几分钟后才到。若 HEIC 一到就复制出去，同步端会立刻把它当成
 // 一张普通照片上传；等 MOV 到达、转换完成再删掉输出目录里的 HEIC，
-// 上游那一份已经存在了——删除撤不回来，Pixel 上就是「静态照片 + 实况照片」两份。
+// 上游那一份已经存在了——删除撤不回来，下游就是「静态照片 + 实况照片」两份。
 func TestMirrorHoldsUnsettledFiles(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "source")

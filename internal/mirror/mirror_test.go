@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/immich2motion/immich2motion/internal/mirror"
-	"github.com/immich2motion/immich2motion/internal/store"
+	"github.com/AndreasByrsting/live2motion/internal/mirror"
+	"github.com/AndreasByrsting/live2motion/internal/store"
 )
 
 // nopLogger 让测试输出干净，同时验证 Logger 接口形状。
@@ -128,7 +128,7 @@ func TestRunCopiesUnconvertedKeepingStructure(t *testing.T) {
 		}
 	}
 
-	// mtime 必须保留：Syncthing 两侧时间一致，增量判断才直观
+	// mtime 必须保留：两侧时间一致，增量判断才直观
 	fi, err := os.Stat(filepath.Join(out, "2024", "05", "IMG_0002.HEIC"))
 	if err != nil {
 		t.Fatal(err)
@@ -182,7 +182,7 @@ func TestRunIsIncremental(t *testing.T) {
 	}
 }
 
-// 转换成功后要清掉此前复制出去的原件，否则 Pixel 上就是重复的。
+// 转换成功后要清掉此前复制出去的原件，否则下游就是重复的。
 func TestRunPrunesCopiesAfterConversion(t *testing.T) {
 	syncer, st := newSyncer(t)
 	ctx := context.Background()

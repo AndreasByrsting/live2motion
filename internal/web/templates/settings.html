@@ -11,7 +11,7 @@
       <p class="mt-1 text-[0.7rem] text-slate-500">源目录必须以只读方式挂载；输出目录不能位于源目录内部。</p>
       <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
         <label class="block">
-          <span class="lbl">源目录（Immich 图库，只读）</span>
+          <span class="lbl">源目录（照片库，只读）</span>
           <input name="source_dir" value="{{.Settings.SourceDir}}" class="input w-full mt-1 font-mono text-[0.7rem]" required>
         </label>
         <label class="block">
@@ -52,10 +52,10 @@
     <section class="card p-5">
       <h2 class="text-sm font-medium text-slate-200">输出内容</h2>
       <p class="mt-1 text-[0.7rem] text-slate-500">
-        默认只把转换成功的 Motion Photo 写进输出目录，图库里其它照片（普通 HEIC/JPG、没配上对的视频）不会同步过去。
+        默认只把转换成功的 Motion Photo 写进输出目录，图库里其它照片（普通 HEIC/JPG、没配上对的视频）不会出现在输出目录。
         打开下面的开关后，输出目录会变成一份<strong class="text-slate-300">完整图库</strong>：
         转换成功的 Live Photo 只出 JPG（原始 HEIC/MOV 留在源目录，不再复制），
-        其余没有参与转换的文件按源目录结构原样复制一份。这样同步给 Pixel 的文件既完整又不重复。
+        其余没有参与转换的文件按源目录结构原样复制一份。这样输出目录既完整又不重复。
       </p>
       <div class="mt-4 space-y-2.5">
         <label class="check">
@@ -151,7 +151,7 @@
         <label class="block">
           <span class="lbl">视频扩展名</span>
           <input name="video_exts" value="{{range $i, $e := .Settings.VideoExts}}{{if $i}}, {{end}}{{$e}}{{end}}" class="input w-full mt-1 font-mono text-[0.7rem]">
-          <span class="hint">Immich 可能把 Live Photo 视频存成 .mp4</span>
+          <span class="hint">部分图库会把 Live Photo 视频存成 .mp4</span>
         </label>
         <label class="block">
           <span class="lbl">日志保留条数</span>

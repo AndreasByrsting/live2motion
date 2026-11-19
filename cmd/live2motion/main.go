@@ -1,5 +1,8 @@
-// immich2motion 把 Immich 图库中的苹果 Live Photo（HEIC+MOV）转换为
-// Google 兼容的 Motion Photo（JPG 容器 + 尾部拼接 MOV + XMP MicroVideo 元数据）。
+// live2motion 把苹果 Live Photo（HEIC + MOV 双文件）转换为通用 Motion Photo
+// （JPG 容器 + 尾部拼接 MOV + XMP MicroVideo 元数据）。
+//
+// 只做格式转换：扫描目录 → 配对 → 转码 → 落盘，不依赖任何相册软件，
+// 也不关心产物最后被同步到哪里。
 package main
 
 import (
@@ -14,10 +17,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/immich2motion/immich2motion/internal/config"
-	"github.com/immich2motion/immich2motion/internal/engine"
-	"github.com/immich2motion/immich2motion/internal/store"
-	"github.com/immich2motion/immich2motion/internal/web"
+	"github.com/AndreasByrsting/live2motion/internal/config"
+	"github.com/AndreasByrsting/live2motion/internal/engine"
+	"github.com/AndreasByrsting/live2motion/internal/store"
+	"github.com/AndreasByrsting/live2motion/internal/web"
 )
 
 func main() {
@@ -36,37 +39,37 @@ func run() error {
 		healthChk = flag.Bool("health-check", false, "内部使用：探测本地 Web 服务健康状态（容器 HEALTHCHECK）")
 	)
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "immich2motion - Live Photo → Google Motion Photo\n\n")
-		fmt.Fprintf(os.Stderr, "用法:\n  immich2motion [选项]\n\n选项:\n")
+		fmt.Fprintf(os.Stderr, "live2motion - Live Photo → Motion Photo\n\n")
+		fmt.Fprintf(os.Stderr, "用法:\n  live2motion [选项]\n\n选项:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, `
 环境变量:
-  I2M_SOURCE_DIR      源目录（默认 /source，只读挂载）
-  I2M_OUTPUT_DIR      输出目录（默认 /output）
-  I2M_DATA_DIR        数据目录（默认 /data，存 SQLite）
-  I2M_WEB_ADDR        Web 监听地址（默认 :8080）
-  I2M_LOG_LEVEL       日志级别 info|warn|error（默认 info）
-  I2M_WORKERS         并发数（默认 2）
-  I2M_JPG_QUALITY     JPG 质量（默认 90）
-  I2M_ENABLE_MD5      是否启用 MD5 校验（默认 true）
-  I2M_AUTO_SCAN       是否自动持续扫描（默认 true）
-  I2M_OUTPUT_SUFFIX   输出文件名后缀（默认 -motion）
-  I2M_INCLUDE_UNCONVERTED
+  L2M_SOURCE_DIR      源目录（默认 /source，只读挂载）
+  L2M_OUTPUT_DIR      输出目录（默认 /output）
+  L2M_DATA_DIR        数据目录（默认 /data，存 SQLite）
+  L2M_WEB_ADDR        Web 监听地址（默认 :8080）
+  L2M_LOG_LEVEL       日志级别 info|warn|error（默认 info）
+  L2M_WORKERS         并发数（默认 2）
+  L2M_JPG_QUALITY     JPG 质量（默认 100）
+  L2M_ENABLE_MD5      是否启用 MD5 校验（默认 true）
+  L2M_AUTO_SCAN       是否自动持续扫描（默认 true）
+  L2M_OUTPUT_SUFFIX   输出文件名后缀（默认 -motion）
+  L2M_INCLUDE_UNCONVERTED
                       完整图库模式（默认 false）：把未参与转换的源文件原样复制到输出目录，
                       保持与源目录相同的相对路径，使同步出去的图库完整且不重复
-  I2M_MIRROR_SETTLE_MIN
+  L2M_MIRROR_SETTLE_MIN
                       镜像观察期（默认 30 分钟）：新到达或刚失败的源文件先不写进输出目录，
                       等它定型（另一半到达、或确认不会再转换）后再决定，避免写完又删。
                       0 = 不等待，立即写入（旧行为）
-  I2M_AUTO_THEME      面板按本地时间自动切换日间/夜间配色（默认 true）
-  I2M_EXIFTOOL        exiftool 可执行文件
-  I2M_HEIF_CONVERT    heif-convert 可执行文件
+  L2M_AUTO_THEME      面板按本地时间自动切换日间/夜间配色（默认 true）
+  L2M_EXIFTOOL        exiftool 可执行文件
+  L2M_HEIF_CONVERT    heif-convert 可执行文件
 `)
 	}
 	flag.Parse()
 
 	if *showVer {
-		fmt.Printf("immich2motion %s\n", config.Version)
+		fmt.Printf("live2motion %s\n", config.Version)
 		return nil
 	}
 	if *healthChk {
@@ -202,7 +205,7 @@ func runWeb(ctx context.Context, cfg config.Config, st *store.Store, settings co
 
 	errCh := make(chan error, 1)
 	go func() {
-		fmt.Printf("immich2motion %s 已启动，Web 面板: http://localhost%s\n", config.Version, portOnly(cfg.WebAddr))
+		fmt.Printf("live2motion %s 已启动，Web 面板: http://localhost%s\n", config.Version, portOnly(cfg.WebAddr))
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}

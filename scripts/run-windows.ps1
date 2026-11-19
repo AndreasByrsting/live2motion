@@ -1,4 +1,4 @@
-# immich2motion 本地直接运行（不构建 Docker）
+# live2motion 本地直接运行（不构建 Docker）
 #
 # 用法：
 #   1) 先把 HEIC / MOV 成对放进 $SourceDir
@@ -12,21 +12,21 @@
 $ErrorActionPreference = 'Stop'
 
 # ================= 按需修改 =================
-$SourceDir = 'D:\i2m\source'      # 源图库（只读使用，程序不会往里写）
-$OutputDir = 'D:\i2m\output'      # 转换产物
-$DataDir   = 'D:\i2m\data'        # SQLite 数据库
+$SourceDir = 'D:\l2m\source'      # 源图库（只读使用，程序不会往里写）
+$OutputDir = 'D:\l2m\output'      # 转换产物
+$DataDir   = 'D:\l2m\data'        # SQLite 数据库
 $WebAddr   = ':8080'
 $ExifTool  = 'C:\Users\yuhao.gao\AppData\Local\Programs\ExifTool\exiftool.exe'
 $HeifConv  = ''                   # 装了 heif-convert 就填绝对路径，否则留空
 # ============================================
 
 $root = Split-Path -Parent $PSScriptRoot
-$exe  = Join-Path $root 'immich2motion.exe'
+$exe  = Join-Path $root 'live2motion.exe'
 
 if (-not (Test-Path $exe)) {
     Write-Host "找不到 $exe" -ForegroundColor Red
     Write-Host "请先在项目根目录构建：" -ForegroundColor Yellow
-    Write-Host "  `$env:CGO_ENABLED=0; go build -o immich2motion.exe ./cmd/immich2motion" -ForegroundColor Gray
+    Write-Host "  `$env:CGO_ENABLED=0; go build -o live2motion.exe ./cmd/live2motion" -ForegroundColor Gray
     exit 1
 }
 
@@ -39,20 +39,20 @@ if (-not (Test-Path $SourceDir)) {
 New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 New-Item -ItemType Directory -Path $DataDir   -Force | Out-Null
 
-$env:I2M_SOURCE_DIR = $SourceDir
-$env:I2M_OUTPUT_DIR = $OutputDir
-$env:I2M_DATA_DIR   = $DataDir
-$env:I2M_WEB_ADDR   = $WebAddr
-$env:I2M_LOG_LEVEL  = 'info'
+$env:L2M_SOURCE_DIR = $SourceDir
+$env:L2M_OUTPUT_DIR = $OutputDir
+$env:L2M_DATA_DIR   = $DataDir
+$env:L2M_WEB_ADDR   = $WebAddr
+$env:L2M_LOG_LEVEL  = 'info'
 
 if (Test-Path $ExifTool) {
-    $env:I2M_EXIFTOOL = $ExifTool
+    $env:L2M_EXIFTOOL = $ExifTool
 } else {
     Write-Host "未找到 exiftool：$ExifTool" -ForegroundColor Yellow
     Write-Host "没有 exiftool 就读不到 ContentIdentifier，配对一定为空。" -ForegroundColor Gray
 }
 if ($HeifConv -and (Test-Path $HeifConv)) {
-    $env:I2M_HEIF_CONVERT = $HeifConv
+    $env:L2M_HEIF_CONVERT = $HeifConv
 }
 
 $fileCount = (Get-ChildItem -Path $SourceDir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count
@@ -82,7 +82,7 @@ if (-not $hasHeif) {
 if ($fileCount -eq 0) {
     Write-Host ""
     Write-Host "提示：源目录是空的。请把成对的 .HEIC 与 .MOV/.mp4 放进去。" -ForegroundColor Yellow
-    Write-Host "      Immich 图库一般在 ...\immich\upload\library\<用户ID>\... 下。" -ForegroundColor Gray
+    Write-Host "      源目录可以是任意目录，按 年/月 分子文件夹即可（程序递归扫描）。" -ForegroundColor Gray
 }
 
 Write-Host ""

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/immich2motion/immich2motion/internal/config"
-	"github.com/immich2motion/immich2motion/internal/library"
-	"github.com/immich2motion/immich2motion/internal/webhook"
+	"github.com/AndreasByrsting/live2motion/internal/config"
+	"github.com/AndreasByrsting/live2motion/internal/library"
+	"github.com/AndreasByrsting/live2motion/internal/webhook"
 )
 
 // CheckResult 单条环境检查结果。
@@ -72,7 +72,7 @@ func (e *Engine) CheckHealth(ctx context.Context) HealthReport {
 		}
 		add(CheckResult{
 			Key: "source", Name: "源目录", OK: false, Detail: detail, Blocking: false,
-			Hint: "容器：确认 -v /你的图库:/source:ro 挂载正确；本地运行：把 I2M_SOURCE_DIR 指向真实目录。" +
+			Hint: "容器：确认 -v /你的图库:/source:ro 挂载正确；本地运行：把 L2M_SOURCE_DIR 指向真实目录。" +
 				"程序不会自动创建源目录，以免掩盖路径错误。",
 		})
 	} else if !fi.IsDir() {
@@ -132,7 +132,7 @@ func (e *Engine) CheckHealth(ctx context.Context) HealthReport {
 		add(CheckResult{
 			Key: "exiftool", Name: "exiftool", OK: false, Blocking: true,
 			Detail: fmt.Sprintf("不可用: %v", err),
-			Hint:   "容器镜像已内置 exiftool；本地运行请安装并确保在 PATH 中，或用 I2M_EXIFTOOL 指定绝对路径。",
+			Hint:   "容器镜像已内置 exiftool；本地运行请安装并确保在 PATH 中，或用 L2M_EXIFTOOL 指定绝对路径。",
 		})
 	} else {
 		add(CheckResult{Key: "exiftool", Name: "exiftool", OK: true, Detail: "版本 " + ver})
@@ -142,7 +142,7 @@ func (e *Engine) CheckHealth(ctx context.Context) HealthReport {
 		add(CheckResult{
 			Key: "heif-convert", Name: "heif-convert", OK: false, Blocking: true,
 			Detail: fmt.Sprintf("不可用: %v", err),
-			Hint:   "容器镜像已内置（libheif-examples）；本地运行请安装 libheif，或用 I2M_HEIF_CONVERT 指定绝对路径。",
+			Hint:   "容器镜像已内置（libheif-examples）；本地运行请安装 libheif，或用 L2M_HEIF_CONVERT 指定绝对路径。",
 		})
 	} else {
 		add(CheckResult{Key: "heif-convert", Name: "heif-convert", OK: true, Detail: "版本 " + ver})
@@ -222,7 +222,7 @@ func (e *Engine) reportHealthTransition(rep HealthReport, wasReady bool) {
 
 // probeWritable 通过创建并删除临时文件确认目录可写。
 func probeWritable(dir string) error {
-	f, err := os.CreateTemp(dir, ".i2m-probe-*")
+	f, err := os.CreateTemp(dir, ".l2m-probe-*")
 	if err != nil {
 		return err
 	}
@@ -258,7 +258,7 @@ func checkSourceDir(dir string) error {
 	fi, err := os.Stat(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("源目录不存在: %s（程序不会自动创建源目录，请检查挂载路径或 I2M_SOURCE_DIR）", dir)
+			return fmt.Errorf("源目录不存在: %s（程序不会自动创建源目录，请检查挂载路径或 L2M_SOURCE_DIR）", dir)
 		}
 		return fmt.Errorf("源目录无法访问: %s: %w", dir, err)
 	}

@@ -1,4 +1,4 @@
-/* immich2motion 主题控制：按本地时间自动切换 + 手动临时覆盖
+/* live2motion 主题控制：按本地时间自动切换 + 手动临时覆盖
  *
  * 这个文件在 <head> 里同步加载（先于样式表），首帧就能决定配色，
  * 不会出现「先闪一下深色」。规则：
@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var KEY = 'i2m-theme';
+  var KEY = 'l2m-theme';
 
   function readPref() {
     try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; }
@@ -94,7 +94,7 @@
     return apply();
   }
 
-  window.i2mTheme = { apply: apply, toggle: toggle, current: current };
+  window.l2mTheme = { apply: apply, toggle: toggle, current: current };
 
   apply();
 

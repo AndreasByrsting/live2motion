@@ -1,4 +1,4 @@
-# immich2motion —— 多阶段构建：静态 Go 二进制 + heif-convert + exiftool，单容器部署
+# live2motion —— 多阶段构建：静态 Go 二进制 + heif-convert + exiftool，单容器部署
 #
 # 为什么运行阶段用 trixie（Debian 13）而不是 bookworm：
 #   bookworm 自带 libheif 1.15.1 / exiftool 12.57（2022 年），实测两个致命问题：
@@ -64,17 +64,17 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     export GOOS="${TARGETOS:-linux}" && \
     export GOARCH="${TARGETARCH:-$(go env GOHOSTARCH)}" && \
     echo "→ building for ${GOOS}/${GOARCH} (version=${VERSION})" && \
-    go build -ldflags "-s -w -X github.com/immich2motion/immich2motion/internal/config.Version=${VERSION}" \
-      -o /out/immich2motion ./cmd/immich2motion
+    go build -ldflags "-s -w -X github.com/AndreasByrsting/live2motion/internal/config.Version=${VERSION}" \
+      -o /out/live2motion ./cmd/live2motion
 
 # ============================================================================
 # 运行阶段
 # ============================================================================
 FROM ${REGISTRY}debian:trixie-slim
 
-LABEL org.opencontainers.image.title="immich2motion" \
+LABEL org.opencontainers.image.title="live2motion" \
       org.opencontainers.image.description="Convert Apple Live Photos (HEIC+MOV) into Google-compatible Motion Photos" \
-      org.opencontainers.image.source="https://github.com/immich2motion/immich2motion"
+      org.opencontainers.image.source="https://github.com/AndreasByrsting/live2motion"
 
 # libheif-examples 提供 heif-convert（1.23.x，能解 iOS 17+ 的多辅助图 HEIC）；
 # libimage-exiftool-perl 提供 exiftool（13.25，能读新 HEIC 的 MakerNotes ContentIdentifier）。
@@ -92,13 +92,13 @@ RUN (heif-convert --version || true) 2>&1 | head -1 \
 
 RUN mkdir -p /source /output /data
 
-COPY --from=builder /out/immich2motion /usr/local/bin/immich2motion
+COPY --from=builder /out/live2motion /usr/local/bin/live2motion
 
-ENV I2M_SOURCE_DIR=/source \
-    I2M_OUTPUT_DIR=/output \
-    I2M_DATA_DIR=/data \
-    I2M_WEB_ADDR=:8080 \
-    I2M_LOG_LEVEL=info \
+ENV L2M_SOURCE_DIR=/source \
+    L2M_OUTPUT_DIR=/output \
+    L2M_DATA_DIR=/data \
+    L2M_WEB_ADDR=:8080 \
+    L2M_LOG_LEVEL=info \
     TZ=Asia/Shanghai
 
 # 仅 /data 需要持久化；/source 与 /output 由宿主目录挂载
@@ -108,7 +108,7 @@ EXPOSE 8080
 
 # 不依赖 curl/wget，用程序自身的子命令探活
 HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
-    CMD ["/usr/local/bin/immich2motion", "--health-check"]
+    CMD ["/usr/local/bin/live2motion", "--health-check"]
 
-ENTRYPOINT ["/usr/local/bin/immich2motion"]
+ENTRYPOINT ["/usr/local/bin/live2motion"]
 CMD ["--web"]
