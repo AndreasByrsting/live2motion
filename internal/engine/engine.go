@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -356,6 +357,15 @@ func (e *Engine) runJob(ctx context.Context, job *store.JobView) {
 	e.setCurrent(job, pair, "queued", 0)
 	defer e.clearCurrent(job.JobID)
 
+	// 数据库可能被重建（例如 /data 丢失），而 /output 里的成品仍在。
+	// 只要磁盘上那份文件确实是本配对的 Motion Photo，就直接登记完成，不重新转码。
+	if res, ok := e.reuseExistingOutput(ctx, st, pair); ok {
+		e.Info("convert", "复用已有产物 %s（%.1f MB）：与源匹配，未重新转码",
+			res.RelPath, float64(res.SizeBytes)/(1024*1024))
+		e.commitSuccess(ctx, st, job, pair, res)
+		return
+	}
+
 	e.Info("convert", "开始转换 %s", pair.HeicRelPath)
 
 	if st.VerifyBeforeConvert && st.EnableMD5 {
@@ -387,6 +397,51 @@ func (e *Engine) runJob(ctx context.Context, job *store.JobView) {
 		return
 	}
 
+	e.thr.add(res.SizeBytes)
+	e.Info("convert", "完成 %s（%.1f MB，耗时 %s）",
+		res.RelPath, float64(res.SizeBytes)/(1024*1024), time.Since(began).Round(time.Millisecond))
+	e.commitSuccess(ctx, st, job, pair, res)
+}
+
+// reuseExistingOutput 检查输出目录里是否已经躺着本配对的成品。
+//
+// 场景：数据库被重建（/data 丢失、换了数据卷），但 /output 里上一轮的产物还在。
+// 此时没有任何产物记录，若直接重转，会把整套图库重跑一遍——转码白做，
+// 产物 mtime 也会被刷新，下游同步工具于是重新传输全部照片。
+//
+// 判定放在 convert.InspectExisting 里，比「同名文件存在」严格得多：
+// 必须是带 MicroVideo 标记的 JPEG，且尾部视频段长度与当前源 MOV 一致。
+// 不符合就老老实实重转。
+func (e *Engine) reuseExistingOutput(ctx context.Context, st config.Settings, pair store.Pair) (*convert.Result, bool) {
+	relOut := convert.OutputRelPath(st.OutputSuffix, pair.HeicRelPath)
+	absOut := filepath.Join(st.OutputDir, filepath.FromSlash(relOut))
+
+	jpgBytes, err := e.pipeline.InspectExisting(ctx, absOut, pair.VideoSize)
+	if err != nil {
+		// 文件不存在是最常见的情况，不打扰用户；存在却校验不过说明产物可疑，值得留痕。
+		if !os.IsNotExist(err) {
+			e.Info("convert", "输出目录已有 %s 但无法复用（%v），将重新转换", relOut, err)
+		}
+		return nil, false
+	}
+
+	sum, size, err := library.MD5File(absOut)
+	if err != nil {
+		e.Warn("convert", "已有产物校验通过但读取 MD5 失败 %s: %v", relOut, err)
+		return nil, false
+	}
+	return &convert.Result{
+		RelPath:    relOut,
+		AbsPath:    absOut,
+		SizeBytes:  size,
+		JPGBytes:   jpgBytes,
+		VideoBytes: size - jpgBytes,
+		MD5:        sum,
+	}, true
+}
+
+// commitSuccess 收尾：登记产物、标记任务完成、按需撤回源文件副本。
+func (e *Engine) commitSuccess(ctx context.Context, st config.Settings, job *store.JobView, pair store.Pair, res *convert.Result) {
 	if err := e.st.SaveOutput(ctx, &store.Output{
 		PairID:      pair.ID,
 		JobID:       job.JobID,
@@ -421,9 +476,6 @@ func (e *Engine) runJob(ctx context.Context, job *store.JobView) {
 		}
 	}
 
-	e.thr.add(res.SizeBytes)
-	e.Info("convert", "完成 %s（%.1f MB，耗时 %s）",
-		res.RelPath, float64(res.SizeBytes)/(1024*1024), time.Since(began).Round(time.Millisecond))
 	e.cycleJobDone()
 	e.publishStats()
 }

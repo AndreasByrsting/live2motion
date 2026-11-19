@@ -72,13 +72,14 @@ func (p *Pipeline) Execute(ctx context.Context, job Job) (*Result, error) {
 
 	heicAbs := filepath.Join(st.SourceDir, filepath.FromSlash(job.Pair.HeicRelPath))
 	videoAbs := filepath.Join(st.SourceDir, filepath.FromSlash(job.Pair.VideoRelPath))
-	for _, f := range []string{heicAbs, videoAbs} {
-		if _, err := os.Stat(f); err != nil {
-			if os.IsNotExist(err) {
-				return nil, fmt.Errorf("源文件已不存在: %s", f)
-			}
-			return nil, fmt.Errorf("源文件不可访问 %s: %w", f, err)
-		}
+	// 源 HEIC 的 mtime 稍后要写到产物上：下游同步/备份工具按 mtime 判断变化，
+	// 对齐之后即使因为重建数据库重转一次，也不会让整套照片被重新传输。
+	heicInfo, err := statSource(heicAbs)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := statSource(videoAbs); err != nil {
+		return nil, err
 	}
 
 	relOut := OutputRelPath(st.OutputSuffix, job.Pair.HeicRelPath)
@@ -178,6 +179,9 @@ func (p *Pipeline) Execute(ctx context.Context, job Job) (*Result, error) {
 	if err := os.Rename(tmpOutPath, absOut); err != nil {
 		return nil, fmt.Errorf("输出落盘失败: %w", err)
 	}
+	// 时间戳对齐源 HEIC（rename 会保留临时文件的写入时间）。
+	// 只是让下游的 mtime 判断更贴近照片本身；失败不影响产物内容。
+	_ = os.Chtimes(absOut, heicInfo.ModTime(), heicInfo.ModTime())
 	report(stageDone, 1.0)
 
 	return &Result{
@@ -200,6 +204,62 @@ func OutputRelPath(suffix, heicRel string) string {
 		return name
 	}
 	return path.Join(dir, name)
+}
+
+// InspectExisting 判断磁盘上已有的文件是否就是本配对的成品，返回其 JPG 段字节数。
+//
+// 用途：数据库被重建（/data 丢失）后，/output 里的产物还在。此时没有任何产物记录，
+// 若不做检查，整套图库会被重新转码一遍。这里用「文件结构 + 视频段长度」判断，
+// 而不是「同名文件存在」——避免把用户自己放的同名 JPG 误认成已完成：
+//
+//	JPEG 头（FF D8）→ 带 MicroVideo=1 → offset 落在文件内部
+//	→ 文件长度 - offset == 当前源 MOV 的字节数
+//
+// 任何一项不符都返回错误，调用方应走正常转码流程。
+func (p *Pipeline) InspectExisting(ctx context.Context, absPath string, videoBytes int64) (int64, error) {
+	fi, err := os.Stat(absPath)
+	if err != nil {
+		return 0, err
+	}
+	size := fi.Size()
+	if videoBytes <= 0 || size <= videoBytes {
+		return 0, fmt.Errorf("产物长度 %d 不足以容纳 %d 字节视频", size, videoBytes)
+	}
+
+	f, err := os.Open(absPath)
+	if err != nil {
+		return 0, err
+	}
+	var head [2]byte
+	_, rerr := io.ReadFull(f, head[:])
+	_ = f.Close()
+	if rerr != nil || head[0] != 0xFF || head[1] != 0xD8 {
+		return 0, fmt.Errorf("产物不是 JPEG: %s", absPath)
+	}
+
+	offset, err := p.readMotionOffset(ctx, absPath)
+	if err != nil {
+		return 0, err
+	}
+	if offset <= 0 || offset >= size {
+		return 0, fmt.Errorf("MicroVideoOffset=%d 越界（文件 %d 字节）", offset, size)
+	}
+	if size-offset != videoBytes {
+		return 0, fmt.Errorf("视频段 %d 字节与源视频 %d 字节不一致", size-offset, videoBytes)
+	}
+	return offset, nil
+}
+
+// statSource 读取源文件信息，错误信息区分「不存在」与「不可访问」。
+func statSource(p string) (os.FileInfo, error) {
+	fi, err := os.Stat(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("源文件已不存在: %s", p)
+		}
+		return nil, fmt.Errorf("源文件不可访问 %s: %w", p, err)
+	}
+	return fi, nil
 }
 
 // heicToJPG 调用 heif-convert，质量参数 0-100。
@@ -291,16 +351,16 @@ func (p *Pipeline) writeXMPOnce(ctx context.Context, heicPath, jpgPath string, o
 	return err
 }
 
-// verifyXMP 回读校验：MicroVideo 必须为 1，MicroVideoOffset 必须等于 JPG 字节数。
-func (p *Pipeline) verifyXMP(ctx context.Context, jpgPath string, expectOffset int64) error {
+// readMotionOffset 读回产物里的 MicroVideo 标记与偏移量。
+func (p *Pipeline) readMotionOffset(ctx context.Context, jpgPath string) (int64, error) {
 	out, err := run(ctx, time.Minute, p.ExifBin,
 		"-j", "-G0", "-s", "-MicroVideo", "-MicroVideoOffset", jpgPath)
 	if err != nil {
-		return fmt.Errorf("校验 XMP 失败: %w", err)
+		return 0, fmt.Errorf("校验 XMP 失败: %w", err)
 	}
 	var entries []map[string]any
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &entries); err != nil || len(entries) == 0 {
-		return fmt.Errorf("XMP 校验输出无法解析")
+		return 0, fmt.Errorf("XMP 校验输出无法解析")
 	}
 	var mv string
 	var offsetStr string
@@ -313,11 +373,20 @@ func (p *Pipeline) verifyXMP(ctx context.Context, jpgPath string, expectOffset i
 		}
 	}
 	if mv != "1" {
-		return fmt.Errorf("XMP MicroVideo 写入异常: %q", mv)
+		return 0, fmt.Errorf("XMP MicroVideo 写入异常: %q", mv)
 	}
 	got, perr := parseIntLoose(offsetStr)
 	if perr != nil {
-		return fmt.Errorf("XMP MicroVideoOffset 缺失或非法: %q", offsetStr)
+		return 0, fmt.Errorf("XMP MicroVideoOffset 缺失或非法: %q", offsetStr)
+	}
+	return got, nil
+}
+
+// verifyXMP 回读校验：MicroVideo 必须为 1，MicroVideoOffset 必须等于 JPG 字节数。
+func (p *Pipeline) verifyXMP(ctx context.Context, jpgPath string, expectOffset int64) error {
+	got, err := p.readMotionOffset(ctx, jpgPath)
+	if err != nil {
+		return err
 	}
 	if got != expectOffset {
 		return fmt.Errorf("XMP MicroVideoOffset=%d 与 JPG 实际长度 %d 不一致", got, expectOffset)
