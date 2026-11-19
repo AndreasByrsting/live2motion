@@ -181,6 +181,11 @@
         推送地址会按域名自动适配报文格式：钉钉 / 飞书 / 企业微信 / Slack / Discord / ntfy / Bark，
         其他地址按通用 JSON 发送。
       </p>
+      <p class="mt-1 text-[0.7rem] text-slate-500">
+        Bark 直接把 App 里复制的地址粘贴进来即可（形如
+        <code class="text-slate-400">https://api.day.app/&lt;key&gt;</code>）。
+        地址后面附带的标题、正文会被忽略，分组 / ttl / 声音等参数照旧生效。
+      </p>
       <p class="mt-2 text-[0.7rem] text-slate-500">
         推送以<strong class="text-slate-300">一轮完整处理</strong>为单位：扫描开始推一条，
         整轮转换结束（队列排空）再推一条汇总——包含文件数、新增配对、成功 / 失败 / 跳过、耗时。

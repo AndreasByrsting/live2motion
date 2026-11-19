@@ -292,7 +292,7 @@ Live Photo 在磁盘上是两个文件（HEIC + MOV），转换后是一个 JPG�
 | 企业微信 | `qyapi.weixin.qq.com` |
 | Slack / Discord | 各自的 Incoming Webhook 地址 |
 | ntfy | 自建或公共 ntfy 服务 |
-| Bark | `api.day.app` |
+| Bark | `api.day.app` 或自建 Bark（域名含 `bark.`）；App 里复制的地址可直接粘贴，程序只取设备 key，标题正文走 JSON |
 | 其他地址 | 通用 JSON 格式 |
 
 设置页有「发送测试消息」按钮（用已保存的配置立即发一条）。

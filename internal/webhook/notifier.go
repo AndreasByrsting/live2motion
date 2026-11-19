@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -167,22 +168,26 @@ func detectPlatform(u *url.URL) string {
 		return "discord"
 	case strings.Contains(h, "ntfy.sh"), strings.HasPrefix(h, "ntfy."):
 		return "ntfy"
-	case strings.Contains(h, "api.day.app"):
+	case strings.Contains(h, "api.day.app"), strings.Contains(h, "bark."):
 		return "bark"
 	default:
 		return "generic"
 	}
 }
 
-// buildRequest 按平台生成请求体与额外 header。
-func buildRequest(cfg config.Settings, e Event) (body []byte, headers map[string]string, err error) {
+// buildRequest 按平台生成端点、请求体与额外 header。
+//
+// 返回的 endpoint 通常等于配置里的地址，只有 Bark 例外：它的路径式地址会被服务器
+// 当作标题/正文解析，必须改写端点才能用 JSON 提交。
+func buildRequest(cfg config.Settings, e Event) (endpoint string, body []byte, headers map[string]string, err error) {
 	parsed, perr := url.Parse(cfg.WebhookURL)
 	if perr != nil {
-		return nil, nil, fmt.Errorf("解析 Webhook 地址失败: %w", perr)
+		return "", nil, nil, fmt.Errorf("解析 Webhook 地址失败: %w", perr)
 	}
 	title, content := buildText(e)
 	text := title + "\n" + content
 	platform := detectPlatform(parsed)
+	endpoint = parsed.String()
 
 	headers = map[string]string{"Content-Type": "application/json; charset=utf-8"}
 
@@ -197,34 +202,33 @@ func buildRequest(cfg config.Settings, e Event) (body []byte, headers map[string
 			"topic": topic, "title": title, "message": content,
 			"tags": []string{"camera"},
 		})
-		return b, headers, nil
+		return endpoint, b, headers, nil
 
 	case "bark":
-		payload := map[string]any{"title": title, "body": content, "group": "live2motion"}
-		b, _ := json.Marshal(payload)
-		return b, headers, nil
+		ep, b, err := barkRequest(parsed, title, content)
+		return ep, b, headers, err
 
 	case "slack":
 		b, _ := json.Marshal(map[string]any{"text": text})
-		return b, headers, nil
+		return endpoint, b, headers, nil
 
 	case "discord":
 		b, _ := json.Marshal(map[string]any{"content": text})
-		return b, headers, nil
+		return endpoint, b, headers, nil
 
 	case "dingtalk", "wecom":
 		b, _ := json.Marshal(map[string]any{
 			"msgtype": "text",
 			"text":    map[string]string{"content": text},
 		})
-		return b, headers, nil
+		return endpoint, b, headers, nil
 
 	case "feishu":
 		b, _ := json.Marshal(map[string]any{
 			"msg_type": "text",
 			"content":  map[string]string{"text": text},
 		})
-		return b, headers, nil
+		return endpoint, b, headers, nil
 
 	default:
 		// 通用结构：便于自建接收端做结构化处理
@@ -237,8 +241,77 @@ func buildRequest(cfg config.Settings, e Event) (body []byte, headers map[string
 			"platform": "generic",
 		}
 		b, _ := json.Marshal(payload)
-		return b, headers, nil
+		return endpoint, b, headers, nil
 	}
+}
+
+// barkRequest 生成 Bark 推送。
+//
+// Bark 的地址有两种形态：
+//   - 只带设备 key：https://api.day.app/<key>
+//   - App 里直接复制的路径式地址：https://api.day.app/<key>/<标题>/<正文>
+//
+// 后者用 POST 时服务器只认路径里的标题与正文、丢弃 JSON 请求体，于是通知里
+// 显示的就是路径上的字面量（例如用户照抄模板时的 body）。所以这里只保留
+// 第一段作为设备 key，改写成 POST /<key>，标题正文走 JSON；地址上附带的
+// 参数（group / ttl / sound / level / icon 等）原样搬进请求体，保持用户在
+// App 里选好的推送行为。
+func barkRequest(parsed *url.URL, title, body string) (string, []byte, error) {
+	key := firstPathSegment(parsed.Path)
+	if key == "" {
+		return "", nil, fmt.Errorf("Bark 地址缺少设备 key，应形如 https://api.day.app/<key>")
+	}
+
+	ep := *parsed
+	ep.Path = "/" + key
+	ep.RawQuery = ""
+	ep.Fragment = ""
+	ep.RawPath = ""
+
+	payload := map[string]any{"title": title, "body": body}
+	for k, vs := range parsed.Query() {
+		if len(vs) == 0 {
+			continue
+		}
+		switch k {
+		case "title", "body", "device_key", "device_keys":
+			continue // 由程序决定，避免和实际内容冲突
+		}
+		payload[k] = barkValue(vs[0])
+	}
+	if _, ok := payload["group"]; !ok {
+		payload["group"] = "live2motion"
+	}
+
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return "", nil, fmt.Errorf("构造 Bark 报文失败: %w", err)
+	}
+	return ep.String(), b, nil
+}
+
+func firstPathSegment(p string) string {
+	for _, seg := range strings.Split(strings.Trim(p, "/"), "/") {
+		if seg = strings.TrimSpace(seg); seg != "" {
+			return seg
+		}
+	}
+	return ""
+}
+
+// barkValue 把地址参数的字符串转成合适的 JSON 类型：Bark 的 ttl / badge 之类
+// 字段是数字，传字符串会被判为参数错误。
+func barkValue(v string) any {
+	if n, err := strconv.Atoi(v); err == nil {
+		return n
+	}
+	switch strings.ToLower(v) {
+	case "true":
+		return true
+	case "false":
+		return false
+	}
+	return v
 }
 
 // SendNow 立即发送一条事件。用于「测试推送」按钮。
@@ -252,11 +325,11 @@ func (n *Notifier) SendNow(e Event) error {
 	if e.At.IsZero() {
 		e.At = time.Now()
 	}
-	body, headers, err := buildRequest(cfg, e)
+	endpoint, body, headers, err := buildRequest(cfg, e)
 	if err != nil {
 		return err
 	}
-	return n.post(cfg.WebhookURL, body, headers)
+	return n.post(endpoint, body, headers)
 }
 
 // ---------- 发送 ----------
@@ -266,7 +339,7 @@ func (n *Notifier) send(cfg config.Settings, e Event) {
 	if cfg.WebhookURL == "" {
 		return
 	}
-	body, headers, err := buildRequest(cfg, e)
+	endpoint, body, headers, err := buildRequest(cfg, e)
 	if err != nil {
 		n.log("warn", "%v", err)
 		return
@@ -274,7 +347,7 @@ func (n *Notifier) send(cfg config.Settings, e Event) {
 
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
-		lastErr = n.post(cfg.WebhookURL, body, headers)
+		lastErr = n.post(endpoint, body, headers)
 		if lastErr == nil {
 			n.log("info", "Webhook 已推送：%s", buildTitleForLog(e))
 			return
@@ -317,27 +390,39 @@ func (n *Notifier) post(endpoint string, body []byte, headers map[string]string)
 		}
 		return fmt.Errorf("HTTP %d：%s", resp.StatusCode, snippet)
 	}
-	// 部分平台（钉钉/飞书）HTTP 200 但业务码失败
-	if errCode := detectBizError(respBody); errCode != "" {
+	// 部分平台（钉钉/飞书）HTTP 200 但业务码失败。注意不能对所有平台都查 code：
+	// Bark 成功时返回 {"code":200,...}，按「code≠0 即失败」会误判成失败并重试。
+	if errCode := detectBizError(platformOf(endpoint), respBody); errCode != "" {
 		return fmt.Errorf("%s", errCode)
 	}
 	return nil
 }
 
-// detectBizError 识别钉钉/飞书的业务错误码（HTTP 200 但实际失败）。
-func detectBizError(body []byte) string {
+func platformOf(endpoint string) string {
+	if u, err := url.Parse(endpoint); err == nil {
+		return detectPlatform(u)
+	}
+	return "generic"
+}
+
+// detectBizError 识别钉钉/飞书/企微的业务错误码（HTTP 200 但实际失败）。
+func detectBizError(platform string, body []byte) string {
 	var m map[string]any
 	if err := json.Unmarshal(body, &m); err != nil {
 		return ""
 	}
-	if v, ok := m["errcode"]; ok {
-		if code, ok := v.(float64); ok && code != 0 {
-			return fmt.Sprintf("errcode=%v errmsg=%v", v, m["errmsg"])
+	switch platform {
+	case "dingtalk", "wecom":
+		if v, ok := m["errcode"]; ok {
+			if code, ok := v.(float64); ok && code != 0 {
+				return fmt.Sprintf("errcode=%v errmsg=%v", v, m["errmsg"])
+			}
 		}
-	}
-	if v, ok := m["code"]; ok {
-		if code, ok := v.(float64); ok && code != 0 {
-			return fmt.Sprintf("code=%v msg=%v", code, m["msg"])
+	case "feishu":
+		if v, ok := m["code"]; ok {
+			if code, ok := v.(float64); ok && code != 0 {
+				return fmt.Sprintf("code=%v msg=%v", code, m["msg"])
+			}
 		}
 	}
 	return ""
