@@ -1,7 +1,8 @@
 {{define "content"}}
-<div class="space-y-3">
-  <div class="flex flex-wrap items-center gap-3">
-    <div id="level-filter" class="flex rounded-lg border border-slate-800 overflow-hidden text-xs">
+<div class="space-y-3.5">
+
+  <div class="panel flex flex-wrap items-center gap-3 p-3">
+    <div id="level-filter" class="segmented">
       <button data-level="all" class="seg seg-active"
               hx-get="/partials/logs?level=all" hx-target="#log-box" hx-swap="innerHTML">全部</button>
       <button data-level="info" class="seg"
@@ -12,22 +13,26 @@
               hx-get="/partials/logs?level=error" hx-target="#log-box" hx-swap="innerHTML">ERROR</button>
     </div>
 
-    <label class="flex items-center gap-1.5 text-[0.7rem] text-slate-400 cursor-pointer select-none">
-      <input type="checkbox" id="autoscroll" checked class="accent-emerald-500">
-      自动滚动
+    <label class="switch" title="滚动到底部时自动跟随最新日志">
+      <input type="checkbox" id="autoscroll" checked>
+      <span class="track"></span>
+      <span class="switch-text"><b>自动滚动</b></span>
     </label>
 
     <div class="flex-1"></div>
 
-    <button class="btn btn-ghost" hx-post="/api/actions/clear-logs" hx-target="#toast-wrap" hx-swap="innerHTML">清空日志</button>
+    <button class="btn btn-ghost btn-mini" hx-post="/api/actions/clear-logs" hx-target="#toast-wrap" hx-swap="innerHTML">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/><path d="M6.5 7l.8 12a1.5 1.5 0 0 0 1.5 1.4h6.4a1.5 1.5 0 0 0 1.5-1.4l.8-12"/></svg>
+      清空
+    </button>
   </div>
 
-  <div id="log-box" class="card-solid h-[calc(100vh-13rem)] overflow-auto font-mono text-[0.7rem] leading-5">
+  <div id="log-box" class="panel-inset h-[calc(100vh-13.5rem)] overflow-auto py-1 font-mono text-[0.7rem] leading-5">
     {{template "log_rows" .}}
   </div>
 
-  <div class="text-[0.7rem] text-slate-600">
-    日志实时推送；断线后自动重连。滚动到顶部会暂停自动滚动。
+  <div class="text-[0.68rem] text-slate-600">
+    日志实时推送，断线后自动重连；向上滚动会自动暂停跟随，回到底部恢复。
   </div>
 </div>
 {{end}}

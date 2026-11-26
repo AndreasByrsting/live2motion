@@ -1,56 +1,55 @@
 {{define "jobs_table"}}
-<div id="jobs-table" class="card-solid overflow-hidden">
-  <div class="overflow-x-auto">
-    <table class="w-full text-xs">
-      <thead class="bg-slate-900/80 text-slate-400">
+<div id="jobs-table" class="panel overflow-hidden">
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
         <tr>
-          <th class="th w-28">UUID</th>
-          <th class="th">HEIC 路径</th>
-          <th class="th">视频路径</th>
-          <th class="th w-24">状态</th>
-          <th class="th w-40">进度</th>
-          <th class="th w-56">错误信息</th>
-          <th class="th w-24">操作</th>
+          <th class="th w-28">状态</th>
+          <th class="th">文件</th>
+          <th class="th w-44">进度</th>
+          <th class="th w-52">错误</th>
+          <th class="th th-right w-16">操作</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-800/70">
+      <tbody>
         {{range .Jobs}}
-        <tr class="hover:bg-slate-900/40">
-          <td class="td font-mono text-[0.7rem] text-slate-400" title="{{.ContentID}}">{{truncate .ContentID 10}}</td>
+        <tr>
           <td class="td">
-            <div class="truncate max-w-[280px]" title="{{.HeicRelPath}}">{{.HeicRelPath}}</div>
-            <div class="text-[0.65rem] text-slate-600">{{fmtBytes .HeicSize}}</div>
+            <span class="{{statusClass .Status}}">{{statusText .Status}}</span>
+            <div class="mt-1 font-mono text-[0.62rem] text-slate-600" title="{{.ContentID}}">{{truncate .ContentID 8}}</div>
           </td>
           <td class="td">
-            <div class="truncate max-w-[240px]" title="{{.VideoRelPath}}">{{.VideoRelPath}}</div>
-            <div class="text-[0.65rem] text-slate-600">{{fmtBytes .VideoSize}}</div>
+            <div class="truncate text-slate-200" title="{{.HeicRelPath}}">{{.HeicRelPath}}</div>
+            <div class="mt-0.5 truncate text-[0.66rem] text-slate-600" title="{{.VideoRelPath}}">{{.VideoRelPath}}</div>
+            <div class="mt-0.5 text-[0.62rem] text-slate-600 tabular-nums">{{fmtBytes .HeicSize}} · {{fmtBytes .VideoSize}}</div>
           </td>
-          <td class="td"><span class="{{statusClass .Status}}">{{statusText .Status}}</span></td>
           <td class="td">
             <div class="flex items-center gap-2">
-              <div class="h-1.5 flex-1 rounded-full bg-slate-800 overflow-hidden">
-                <div class="h-full {{if eq .Status "success"}}bg-emerald-400{{else if eq .Status "failed"}}bg-rose-400{{else if eq .Status "running"}}bg-sky-400{{else}}bg-slate-600{{end}}"
+              <div class="meter flex-1">
+                <div class="meter-fill is-static {{if eq .Status "success"}}{{else if eq .Status "failed"}}rose{{else if eq .Status "running"}}sky{{else}}muted{{end}}"
                      style="width: {{pct .Progress}}%"></div>
               </div>
-              <span class="shrink-0 w-8 text-right tabular-nums text-[0.7rem] text-slate-500">{{pct .Progress}}%</span>
+              <span class="w-8 shrink-0 text-right text-[0.66rem] text-slate-500 tabular-nums">{{pct .Progress}}%</span>
             </div>
-            <div class="mt-1 text-[0.65rem] text-slate-600">
+            <div class="mt-1 text-[0.64rem] text-slate-600">
               {{stageText .Stage}}{{if gt .Attempts 0}} · 第 {{.Attempts}}/{{.MaxAttempts}} 次{{end}}
             </div>
           </td>
           <td class="td">
             {{if .LastError}}
-            <div class="truncate max-w-[220px] text-rose-300/90" title="{{.LastError}}">{{.LastError}}</div>
+            <div class="max-w-[220px] truncate text-[0.7rem] text-rose-300/90" title="{{.LastError}}">{{.LastError}}</div>
             {{else}}
-            <span class="text-slate-600">—</span>
+            <span class="text-slate-700">—</span>
             {{end}}
           </td>
-          <td class="td">
-            <button class="btn btn-mini"
+          <td class="td text-right">
+            <button class="btn btn-icon" title="重新转换"
                     hx-post="/api/actions/retry"
                     hx-vals='{"pair_id": "{{.PairID}}"}'
                     hx-target="#toast-wrap"
-                    hx-swap="innerHTML">重转</button>
+                    hx-swap="innerHTML">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg>
+            </button>
           </td>
         </tr>
         {{end}}
@@ -59,20 +58,28 @@
   </div>
 
   {{if not .Jobs}}
-  <div class="py-12 text-center text-xs text-slate-600">
-    没有符合条件的任务。执行一次扫描后，配对成功的 Live Photo 会自动出现在这里。
+  <div class="empty">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5h17M6 7.5V19a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 18 19V7.5"/><path d="M9 4.5h6"/></svg>
+    <div>没有符合条件的任务</div>
+    <div class="text-[0.68rem] text-slate-600">执行一次扫描后，配对成功的 Live Photo 会自动出现在这里</div>
   </div>
   {{end}}
 
-  <div class="flex items-center justify-between border-t border-slate-800 px-4 py-3 text-[0.7rem] text-slate-500">
-    <div>第 {{.Page}} / {{.Pages}} 页</div>
-    <div class="flex items-center gap-2">
-      <button class="btn btn-mini {{if le .Page 1}}opacity-40 pointer-events-none{{end}}"
+  <div class="flex items-center justify-between gap-2 border-t border-slate-700/30 px-3.5 py-2.5 text-[0.68rem] text-slate-500">
+    <div class="tabular-nums">第 {{.Page}} / {{.Pages}} 页</div>
+    <div class="flex items-center gap-1.5">
+      <button class="btn btn-mini btn-ghost {{if le .Page 1}}opacity-40 pointer-events-none{{end}}"
               hx-get="/partials/jobs?page={{dec .Page}}&status={{.Status}}&q={{.Query}}"
-              hx-target="#jobs-table" hx-swap="outerHTML">上一页</button>
-      <button class="btn btn-mini {{if ge .Page .Pages}}opacity-40 pointer-events-none{{end}}"
+              hx-target="#jobs-table" hx-swap="outerHTML">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+        上一页
+      </button>
+      <button class="btn btn-mini btn-ghost {{if ge .Page .Pages}}opacity-40 pointer-events-none{{end}}"
               hx-get="/partials/jobs?page={{inc .Page}}&status={{.Status}}&q={{.Query}}"
-              hx-target="#jobs-table" hx-swap="outerHTML">下一页</button>
+              hx-target="#jobs-table" hx-swap="outerHTML">
+        下一页
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+      </button>
     </div>
   </div>
 </div>

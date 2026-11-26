@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#06090f">
 <title>{{.Title}} · live2motion</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2334d399'/%3E%3Cpath d='M9 22V10l7 7 7-7v12' stroke='%23021016' stroke-width='2.5' fill='none' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2334d399'/%3E%3Cstop offset='.55' stop-color='%2322d3ee'/%3E%3Cstop offset='1' stop-color='%23a78bfa'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='url(%23g)'/%3E%3Cpath d='M9 22V10l7 7 7-7v12' stroke='%23041018' stroke-width='2.6' fill='none' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E">
 <!-- 主题脚本必须同步加载且在样式表之前：首帧就定好配色，避免闪一下深色 -->
 <script src="/static/theme.js"></script>
 <link rel="stylesheet" href="/static/app.css">
@@ -13,77 +14,84 @@
 </head>
 <body class="antialiased">
 
-<div class="bg-aurora" aria-hidden="true"></div>
-<div class="bg-grid" aria-hidden="true"></div>
+<div class="ambient" aria-hidden="true"></div>
+<div class="ambient-2" aria-hidden="true"></div>
 
-<div class="relative z-10 min-h-screen flex">
+<div class="app-shell">
 
   <!-- 侧边栏 -->
-  <aside class="sidebar w-64 shrink-0 sticky top-0 h-screen flex flex-col">
-    <div class="px-5 py-5 border-b border-slate-800/60">
-      <div class="flex items-center gap-2.5">
-        <span class="h-9 w-9 rounded-xl bg-gradient-to-br from-emerald-400 to-sky-500 flex items-center justify-center shadow-lg shadow-emerald-500/25">
-          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="#04121b" stroke-width="2.5" stroke-linejoin="round"><path d="M6 18V7l6 6 6-6v11"/></svg>
-        </span>
-        <div class="leading-tight">
-          <div class="text-sm font-semibold tracking-tight">live2motion</div>
-          <div class="text-[0.7rem] text-slate-500">Live → Motion Photo</div>
-        </div>
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"><path d="M6 18V7l6 6 6-6v11"/></svg>
+      </span>
+      <div class="brand-text leading-tight">
+        <div class="brand-name">live2motion</div>
+        <div class="brand-sub">Live → Motion Photo</div>
       </div>
     </div>
 
-    <nav class="flex-1 p-3 space-y-1">
+    <nav class="nav">
+      <div class="nav-label">工作区</div>
       <a href="/" class="nav-item {{if eq .Active "dashboard"}}nav-item-active{{end}}">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="8.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="5" rx="2"/><rect x="13.5" y="11" width="7.5" height="10" rx="2"/><rect x="3" y="14.5" width="7.5" height="6.5" rx="2"/></svg>
         <span>仪表盘</span>
       </a>
       <a href="/jobs" class="nav-item {{if eq .Active "jobs"}}nav-item-active{{end}}">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5h16M4 12h16M4 17.5h9"/></svg>
         <span>任务列表</span>
       </a>
       <a href="/logs" class="nav-item {{if eq .Active "logs"}}nav-item-active{{end}}">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4h9l5 5v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M8 13h8M8 17h5"/></svg>
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5h8.5L19 10v9.5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1z"/><path d="M13 4.5V10h5.5"/><path d="M8 14h7M8 17h4.5"/></svg>
         <span>日志</span>
       </a>
+      <div class="nav-label mt-2">配置</div>
       <a href="/settings" class="nav-item {{if eq .Active "settings"}}nav-item-active{{end}}">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7.5 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3 13.6H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.7 7.5l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10.2 3V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1.3z"/></svg>
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.3 14.9a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-.97 1.47V21a2 2 0 1 1-4 0v-.09A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.72 15a1.6 1.6 0 0 0-1.47-.97H3a2 2 0 1 1 0-4h.09A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 9 4.72h.09A1.6 1.6 0 0 0 10 3.25V3a2 2 0 1 1 4 0v.09A1.6 1.6 0 0 0 15 4.6a1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.6 1.6 0 0 0 19.28 9v.09a1.6 1.6 0 0 0 1.47.97H21a2 2 0 1 1 0 4h-.09a1.6 1.6 0 0 0-1.47.97z"/></svg>
         <span>设置</span>
       </a>
     </nav>
 
-    <div class="px-4 py-3 border-t border-slate-800/60 text-[0.7rem] text-slate-500 space-y-2">
+    <div class="sidebar-foot">
       <div class="flex items-center justify-between gap-2">
         <a href="https://github.com/AndreasByrsting/live2motion/" target="_blank" rel="noopener noreferrer"
-           class="flex items-center gap-1.5 text-slate-400 hover:text-emerald-300 transition-colors"
-           title="live2motion {{.Version}} · GitHub 项目主页">
+           class="icon-link" title="live2motion {{.Version}} · GitHub 项目主页">
           <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
             <path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38v-1.3c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.88-1.17-.88-1.17-.72-.49.05-.48.05-.48.8.06 1.22.82 1.22.82.71 1.21 1.86.86 2.31.66.07-.52.28-.86.5-1.06-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
           </svg>
           <span>GitHub</span>
         </a>
 
-        <button type="button" id="theme-toggle" class="btn btn-ghost btn-mini" title="切换日间 / 夜间配色">
-          <svg id="theme-icon-sun" class="h-3.5 w-3.5 hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="4"/>
-            <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+        <button type="button" id="theme-toggle" class="btn btn-ghost btn-icon" title="切换日间 / 夜间配色" aria-label="切换配色">
+          <svg id="theme-icon-sun" class="hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3.6"/>
+            <path d="M12 2.6v1.8M12 19.6v1.8M4.7 4.7l1.3 1.3M18 18l1.3 1.3M2.6 12h1.8M19.6 12h1.8M4.7 19.3L6 18M18 6l1.3-1.3"/>
           </svg>
-          <svg id="theme-icon-moon" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.6 6.6 0 0 0 9.8 9.8z"/>
+          <svg id="theme-icon-moon" class="hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20.5 13.2A8 8 0 1 1 10.8 3.5a6.3 6.3 0 0 0 9.7 9.7z"/>
           </svg>
         </button>
       </div>
-      <div class="flex items-center gap-1.5">
-        <span class="dot bg-rose-500" id="sse-dot"></span>
+      <div class="status-line">
+        <span class="dot bg-rose-400" id="sse-dot"></span>
         <span id="sse-text">实时连接中…</span>
       </div>
     </div>
   </aside>
 
   <!-- 主区域 -->
-  <main class="flex-1 min-w-0 flex flex-col">
-    <header class="topbar sticky top-0 z-20 h-14 shrink-0 flex items-center justify-between px-6">
-      <h1 class="text-base font-medium tracking-tight">{{.Title}}</h1>
-      <div class="flex items-center gap-2 text-xs">
+  <main class="main">
+    <header class="topbar">
+      <div class="min-w-0">
+        <h1 class="topbar-title">{{.Title}}</h1>
+        <p class="topbar-sub">
+          {{if eq .Active "dashboard"}}实时状态与转换队列
+          {{else if eq .Active "jobs"}}所有已配对实况的处理记录
+          {{else if eq .Active "logs"}}运行日志，实时推送
+          {{else}}目录、转换与推送配置{{end}}
+        </p>
+      </div>
+      <div class="flex items-center gap-1.5 text-xs">
         {{if .Health}}
           {{if not .Health.Ready}}
           <a href="/" class="badge badge-failed hover:brightness-125" title="环境检查未通过，转换已暂停，点击查看详情">环境异常</a>
@@ -97,7 +105,8 @@
         <span id="hdr-scan" class="badge badge-pending hidden">扫描中</span>
       </div>
     </header>
-    <div class="p-6 flex-1 min-w-0">
+
+    <div class="page page-enter">
       {{template "content" .}}
     </div>
   </main>

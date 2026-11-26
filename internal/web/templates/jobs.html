@@ -1,13 +1,21 @@
 {{define "content"}}
-<div class="space-y-4">
+<div class="space-y-3.5">
 
-  <!-- 筛选栏 -->
-  <form class="flex flex-wrap items-center gap-2"
+  <form class="panel flex flex-wrap items-center gap-2 p-3"
         hx-get="/partials/jobs"
         hx-target="#jobs-table"
         hx-swap="outerHTML"
         hx-trigger="submit, change from:select, keyup changed delay:400ms from:input[name='q']">
-    <select name="status" class="input w-32">
+
+    <div class="relative min-w-[200px] flex-1">
+      <svg class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500"
+           viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/>
+      </svg>
+      <input type="search" name="q" value="{{.Query}}" placeholder="搜索 UUID / 路径…" class="input pl-8">
+    </div>
+
+    <select name="status" class="select w-32">
       <option value="" {{if eq .Status ""}}selected{{end}}>全部状态</option>
       <option value="pending" {{if eq .Status "pending"}}selected{{end}}>待处理</option>
       <option value="running" {{if eq .Status "running"}}selected{{end}}>处理中</option>
@@ -15,9 +23,10 @@
       <option value="failed" {{if eq .Status "failed"}}selected{{end}}>失败</option>
       <option value="skipped" {{if eq .Status "skipped"}}selected{{end}}>已跳过</option>
     </select>
-    <input type="search" name="q" value="{{.Query}}" placeholder="搜索 UUID / 路径…" class="input flex-1 min-w-[200px]">
-    <button type="submit" class="btn btn-ghost">筛选</button>
-    <span class="text-[0.7rem] text-slate-500">共 {{.JobTotal}} 条</span>
+
+    <span class="chip tabular-nums">共 {{.JobTotal}} 条</span>
+
+    <button type="submit" class="btn btn-ghost btn-mini sm:hidden">筛选</button>
   </form>
 
   {{template "jobs_table" .}}

@@ -33,6 +33,7 @@
       el.dataset.timer = '1';
       setTimeout(function () {
         el.style.opacity = '0';
+        el.style.transform = 'translate3d(10px, 0, 0) scale(0.98)';
         setTimeout(function () { el.remove(); }, 320);
       }, 3800);
     });
@@ -45,6 +46,21 @@
 
   document.body.addEventListener('htmx:afterSwap', function () { scheduleToasts(document); });
 
+  /* ---------- 设置页：有改动才滑出保存条 ---------- */
+  var settingsForm = document.querySelector('form[hx-post="/api/settings"]');
+  if (settingsForm) {
+    var saveBar = document.querySelector('.save-bar');
+    var markDirty = function () {
+      if (saveBar) saveBar.classList.add('is-visible');
+    };
+    settingsForm.addEventListener('input', markDirty);
+    settingsForm.addEventListener('change', markDirty);
+    document.body.addEventListener('htmx:afterRequest', function (e) {
+      if (!saveBar || !e.detail || e.detail.elt !== settingsForm) return;
+      if (e.detail.successful) saveBar.classList.remove('is-visible');
+    });
+  }
+
   /* ---------- 日志过滤 ---------- */
   // 级别匹配：选 warn 时 error 也要显示（错误比警告更严重，过滤掉反而漏信息）
   function matchLevel(lv) {
@@ -56,7 +72,7 @@
   }
 
   function applyFilter() {
-    document.querySelectorAll('.log-line').forEach(function (el) {
+    document.querySelectorAll('.log-row').forEach(function (el) {
       el.style.display = matchLevel(el.dataset.level) ? '' : 'none';
     });
   }
@@ -96,23 +112,20 @@
     var empty = document.getElementById('log-empty');
     if (empty) empty.remove();
 
-    var color = entry.level === 'error' ? 'text-rose-400'
-      : entry.level === 'warn' ? 'text-amber-400' : 'text-sky-400';
-
     var row = document.createElement('div');
-    row.className = 'log-line flex gap-2 px-3 py-[3px] hover:bg-slate-900/50 border-b border-slate-900/60';
+    row.className = 'log-row log-' + (entry.level || 'info');
     row.dataset.level = entry.level;
     row.innerHTML =
-      '<span class="shrink-0 text-slate-600">' + esc(fmtTime(entry.ts)) + '</span>' +
-      '<span class="shrink-0 w-11 font-semibold ' + color + '">' + esc(entry.level) + '</span>' +
-      '<span class="shrink-0 w-20 text-slate-500 truncate">' + esc(entry.scope || '') + '</span>' +
-      '<span class="min-w-0 break-all text-slate-300">' + esc(entry.message) + '</span>';
+      '<span class="log-time">' + esc(fmtTime(entry.ts)) + '</span>' +
+      '<span class="log-level">' + esc(entry.level) + '</span>' +
+      '<span class="log-scope">' + esc(entry.scope || '') + '</span>' +
+      '<span class="log-msg">' + esc(entry.message) + '</span>';
     box.appendChild(row);
 
     applyFilter();
     if (state.autoscroll) box.scrollTop = box.scrollHeight;
 
-    var lines = box.querySelectorAll('.log-line');
+    var lines = box.querySelectorAll('.log-row');
     if (lines.length > 2000) {
       for (var i = 0; i < lines.length - 2000; i++) lines[i].remove();
     }
@@ -151,7 +164,7 @@
     var dot = document.getElementById('sse-dot');
     var txt = document.getElementById('sse-text');
     if (!dot || !txt) return;
-    dot.className = 'dot ' + (online ? 'bg-emerald-400' : 'bg-rose-500');
+    dot.className = 'dot ' + (online ? 'dot-live bg-emerald-400' : 'bg-rose-500');
     txt.textContent = online ? '实时连接已建立' : '连接断开，重试中…';
   }
 

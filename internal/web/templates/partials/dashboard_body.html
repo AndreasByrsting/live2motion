@@ -1,88 +1,150 @@
 {{define "dashboard_body"}}
-<div class="space-y-4">
+<div class="space-y-3.5">
 
   {{template "health_banner" (dict "Health" .D.Health)}}
 
-  <!-- 统计卡片 -->
+  <!-- 状态概览 + 主要操作 -->
+  <div class="panel p-4 sm:p-5">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div class="flex items-center gap-3.5 min-w-0">
+        <div class="orb {{if or .D.Scan.Active .D.Running}}orb-busy{{end}}">
+          {{if .D.Paused}}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M9.5 5.5v13M14.5 5.5v13"/></svg>
+          {{else if .D.Scan.Active}}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>
+          {{else if .D.Running}}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3 5.5 13.5H11l-1 7.5 8-11H12z"/></svg>
+          {{else}}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>
+          {{end}}
+        </div>
+
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-[0.98rem] font-semibold tracking-tight text-slate-200">
+              {{if .D.Paused}}已暂停{{else if .D.Scan.Active}}正在扫描{{else if .D.Running}}正在转换{{else}}待命中{{end}}
+            </span>
+            {{if .D.DryRun}}<span class="badge badge-skip">Dry-Run</span>{{end}}
+            {{if .D.Scan.Active}}<span class="badge badge-running">扫描中</span>{{end}}
+            {{if .D.Running}}<span class="badge badge-success">{{len .D.Running}} 个任务进行中</span>{{end}}
+          </div>
+          <div class="mt-1 text-[0.72rem] text-slate-500">
+            {{if .D.Scan.Active}}
+              已发现 <b class="font-medium text-slate-300 tabular-nums">{{.D.Scan.FilesSeen}}</b> 个文件 · {{scanPhaseText .D.Scan.Phase}}
+            {{else if .D.Paused}}
+              扫描仍在继续，转换已暂停，恢复后继续处理队列
+            {{else if .D.LastScan}}
+              上次扫描 {{fmtAgo .D.LastScan.FinishedAt}} · 文件 {{.D.LastScan.FilesSeen}} · 新增 {{.D.LastScan.PairsNew}}
+            {{else}}
+              还没有扫描记录，点右侧「立即扫描」开始
+            {{end}}
+          </div>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <button class="btn btn-primary" hx-post="/api/actions/scan" hx-target="#toast-wrap" hx-swap="innerHTML">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg>
+          立即扫描
+        </button>
+        <div class="segmented">
+          <button class="seg {{if not .D.Paused}}seg-active{{end}}" title="恢复处理队列"
+                  hx-post="/api/actions/resume" hx-target="#toast-wrap" hx-swap="innerHTML">运行</button>
+          <button class="seg {{if .D.Paused}}seg-active{{end}}" title="暂停任务，扫描不受影响"
+                  hx-post="/api/actions/pause" hx-target="#toast-wrap" hx-swap="innerHTML">暂停</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 统计 -->
   <div class="grid grid-cols-2 xl:grid-cols-4 gap-3">
-    <div class="card p-4">
-      <div class="flex items-center justify-between text-xs text-slate-400">
-        <span>待处理</span><span class="dot {{if .D.Scan.Active}}bg-sky-400 animate-pulse{{else}}bg-amber-400{{end}}"></span>
+    <div class="stat stat-amber">
+      <div class="stat-top">
+        <span class="stat-label">待处理</span>
+        <span class="dot {{if .D.Scan.Active}}bg-sky-400 animate-pulse{{else}}bg-amber-400{{end}}"></span>
       </div>
-      <div class="mt-2 text-2xl font-semibold tabular-nums">{{.D.Jobs.Pending}}</div>
-      <div class="mt-1 text-[0.7rem] {{if .D.Scan.Active}}text-sky-300/80{{else}}text-slate-500{{end}}">
-        {{if .D.Scan.Active}}扫描中，已发现 {{.D.Scan.FilesSeen}} 个文件{{else}}已配对，等待转换{{end}}
+      <div class="stat-value text-slate-200">{{.D.Jobs.Pending}}</div>
+      <div class="stat-meta">
+        {{if .D.Scan.Active}}扫描中，已发现 {{.D.Scan.FilesSeen}} 个{{else}}已配对，等待转换{{end}}
       </div>
+      <div class="stat-bar"></div>
     </div>
-    <div class="card p-4">
-      <div class="flex items-center justify-between text-xs text-slate-400">
-        <span>处理中</span><span class="dot bg-sky-400 animate-pulse"></span>
+
+    <div class="stat stat-sky">
+      <div class="stat-top">
+        <span class="stat-label">处理中</span>
+        <span class="dot {{if .D.Running}}bg-sky-400 animate-pulse{{else}}bg-slate-600{{end}}"></span>
       </div>
-      <div class="mt-2 text-2xl font-semibold tabular-nums text-sky-300">{{.D.Jobs.Running}}</div>
-      <div class="mt-1 text-[0.7rem] text-slate-500">并发上限 {{.D.Settings.Workers}}</div>
+      <div class="stat-value text-sky-300">{{.D.Jobs.Running}}</div>
+      <div class="stat-meta">并发上限 {{.D.Settings.Workers}}</div>
+      <div class="stat-bar"></div>
     </div>
-    <div class="card p-4">
-      <div class="flex items-center justify-between text-xs text-slate-400">
-        <span>成功</span><span class="dot bg-emerald-400"></span>
+
+    <div class="stat stat-emerald">
+      <div class="stat-top">
+        <span class="stat-label">成功</span>
+        <span class="dot bg-emerald-400"></span>
       </div>
-      <div class="mt-2 text-2xl font-semibold tabular-nums text-emerald-300">{{.D.Jobs.Success}}</div>
-      <div class="mt-1 text-[0.7rem] text-slate-500">
-        <span class="whitespace-nowrap">已生成产物 {{.D.Outputs}} 个</span>{{if .D.Settings.IncludeUnconverted}}<span class="whitespace-nowrap"> · 原样复制 {{.D.MirrorCount}} 个</span>{{if .D.MirrorHeld}}<span class="whitespace-nowrap"> · 观察中 {{.D.MirrorHeld}} 个</span>{{end}}{{end}}
+      <div class="stat-value text-emerald-300">{{.D.Jobs.Success}}</div>
+      <div class="stat-meta">
+        产物 {{.D.Outputs}} 个{{if .D.Settings.IncludeUnconverted}} · 复制 {{.D.MirrorCount}}{{if .D.MirrorHeld}} · 观察中 {{.D.MirrorHeld}}{{end}}{{end}}
       </div>
+      <div class="stat-bar"></div>
     </div>
-    <div class="card p-4">
-      <div class="flex items-center justify-between text-xs text-slate-400">
-        <span>失败</span><span class="dot bg-rose-400"></span>
+
+    <div class="stat stat-rose">
+      <div class="stat-top">
+        <span class="stat-label">失败</span>
+        <span class="dot bg-rose-400"></span>
       </div>
-      <div class="mt-2 text-2xl font-semibold tabular-nums text-rose-300">{{.D.Jobs.Failed}}</div>
-      <div class="mt-1 text-[0.7rem] text-slate-500">
+      <div class="stat-value text-rose-300">{{.D.Jobs.Failed}}</div>
+      <div class="stat-meta">
         {{if .D.Jobs.Skipped}}已跳过 {{.D.Jobs.Skipped}} 个{{else}}重试上限 {{.D.Settings.MaxRetries}} 次{{end}}
       </div>
+      <div class="stat-bar"></div>
     </div>
   </div>
 
   <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">
     <!-- 转换队列 -->
-    <div class="card xl:col-span-2 p-5">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-sm font-medium text-slate-200">转换队列</h2>
-        <div class="flex items-center gap-4 text-[0.7rem] text-slate-400 tabular-nums">
-          <span>速度 <b class="text-slate-200">{{printf "%.1f" .D.SpeedMBps}}</b> MB/s</span>
-          <span>剩余 <b class="text-slate-200">{{fmtDuration .D.ETASeconds}}</b></span>
+    <div class="panel xl:col-span-2 p-4 sm:p-5">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title">转换队列</h2>
+          <p class="panel-sub">扫描 → 配对 → 转换 → 落盘，一轮结束后推送汇总</p>
+        </div>
+        <div class="hidden sm:flex items-center gap-1.5">
+          <span class="chip">速度 <b class="ml-1 font-medium text-slate-200 tabular-nums">{{printf "%.1f" .D.SpeedMBps}}</b> MB/s</span>
+          <span class="chip">剩余 <b class="ml-1 font-medium text-slate-200 tabular-nums">{{fmtDuration .D.ETASeconds}}</b></span>
         </div>
       </div>
 
       {{if .D.Scan.Active}}
-      <!-- 扫描进行中：给出正在做什么 + 递增计数，避免「全是 0 像卡死」 -->
-      <div class="rounded-lg border border-sky-500/25 bg-sky-500/5 p-3">
+      <div class="panel-inset p-3.5">
         <div class="flex items-center gap-3">
-          <svg class="h-4 w-4 shrink-0 text-sky-300" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-opacity="0.2" stroke-width="3"/>
-            <path d="M20.5 12a8.5 8.5 0 0 0-8.5-8.5" stroke="currentColor" stroke-width="3" stroke-linecap="round">
-              <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.9s" repeatCount="indefinite"/>
-            </path>
-          </svg>
+          <div class="spinner"></div>
           <div class="min-w-0 flex-1">
-            <div class="flex items-center justify-between gap-3 text-xs">
-              <span class="text-sky-300">{{scanPhaseText .D.Scan.Phase}}</span>
-              <span class="shrink-0 text-slate-400 tabular-nums">已用 {{if .D.Scan.ElapsedSeconds}}{{fmtDuration .D.Scan.ElapsedSeconds}}{{else}}不到 1 秒{{end}}</span>
+            <div class="flex items-center justify-between gap-3">
+              <span class="text-[0.78rem] font-medium text-sky-300">{{scanPhaseText .D.Scan.Phase}}</span>
+              <span class="shrink-0 text-[0.7rem] text-slate-500 tabular-nums">已用 {{if .D.Scan.ElapsedSeconds}}{{fmtDuration .D.Scan.ElapsedSeconds}}{{else}}不到 1 秒{{end}}</span>
             </div>
-            <div class="mt-1 text-[0.7rem] text-slate-400 tabular-nums">
-              已发现 <b class="text-slate-200">{{.D.Scan.FilesSeen}}</b> 个文件
-              <span class="text-slate-600">·</span> HEIC {{.D.Scan.HeicSeen}} / 视频 {{.D.Scan.VideoSeen}}
-              {{if .D.Scan.Total}}<span class="text-slate-600">·</span> 本阶段 {{.D.Scan.Done}}/{{.D.Scan.Total}}{{end}}
+            <div class="mt-1 text-[0.7rem] text-slate-500 tabular-nums">
+              已发现 <b class="font-medium text-slate-300">{{.D.Scan.FilesSeen}}</b> 个文件
+              <span class="text-slate-700">·</span> HEIC {{.D.Scan.HeicSeen}} / 视频 {{.D.Scan.VideoSeen}}
+              {{if .D.Scan.Total}}<span class="text-slate-700">·</span> 本阶段 {{.D.Scan.Done}}/{{.D.Scan.Total}}{{end}}
             </div>
           </div>
         </div>
-        <div class="mt-2 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+        <div class="meter mt-3">
           {{if .D.Scan.Total}}
-          <div class="h-full bg-gradient-to-r from-sky-400 to-emerald-400 transition-all duration-300" style="width: {{scanPct .D.Scan}}%"></div>
+          <div class="meter-fill sky" style="width: {{scanPct .D.Scan}}%"></div>
           {{else}}
-          <div class="h-full w-1/3 bg-gradient-to-r from-sky-400 to-emerald-400 animate-pulse"></div>
+          <div class="meter-fill sky" style="width: 34%"></div>
           {{end}}
         </div>
         {{if not .D.Running}}
-        <div class="mt-2 text-[0.7rem] text-slate-500">
+        <div class="mt-2.5 text-[0.68rem] text-slate-500">
           扫描期间队列为空是正常的：配对与入队要等这一轮遍历结束后才会出现。
         </div>
         {{end}}
@@ -90,121 +152,137 @@
       {{end}}
 
       {{if .D.Running}}
-      <div class="space-y-3 {{if .D.Scan.Active}}mt-3{{end}}">
+      <div class="space-y-2.5 {{if .D.Scan.Active}}mt-3{{end}}">
         {{range .D.Running}}
-        <div class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+        <div class="panel-quiet p-3">
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <div class="truncate text-xs text-slate-300" title="{{.HeicRelPath}}">{{.HeicRelPath}}</div>
-              <div class="mt-0.5 text-[0.7rem] text-slate-500 font-mono">{{truncate .ContentID 20}}</div>
+              <div class="truncate text-[0.78rem] text-slate-200" title="{{.HeicRelPath}}">{{.HeicRelPath}}</div>
+              <div class="mt-0.5 truncate font-mono text-[0.66rem] text-slate-600">{{truncate .ContentID 24}}</div>
             </div>
-            <div class="shrink-0 text-[0.7rem] text-slate-400">{{stageText .Stage}} · {{pct .Percent}}%</div>
+            <div class="shrink-0 text-right">
+              <div class="text-[0.72rem] text-slate-300 tabular-nums">{{pct .Percent}}%</div>
+              <div class="text-[0.66rem] text-slate-500">{{stageText .Stage}}</div>
+            </div>
           </div>
-          <div class="mt-2 h-1.5 rounded-full bg-slate-800 overflow-hidden">
-            <div class="h-full bg-gradient-to-r from-emerald-400 to-sky-400 transition-all duration-300" style="width: {{pct .Percent}}%"></div>
+          <div class="meter mt-2">
+            <div class="meter-fill" style="width: {{pct .Percent}}%"></div>
           </div>
         </div>
         {{end}}
       </div>
       {{else if not .D.Scan.Active}}
-      <div class="flex flex-col items-center justify-center py-10 text-slate-600">
-        <svg class="h-8 w-8 mb-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-        <div class="text-xs">{{if .D.Paused}}任务已暂停{{else if .D.DryRun}}Dry-Run 模式：只配对不转换{{else}}当前没有转换任务{{end}}</div>
+      <div class="empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 1.8"/></svg>
+        <div>{{if .D.Paused}}任务已暂停{{else if .D.DryRun}}Dry-Run 模式：只配对不转换{{else}}当前没有转换任务{{end}}</div>
+        {{if not .D.Paused}}<button class="btn btn-mini btn-ghost mt-1" hx-post="/api/actions/scan" hx-target="#toast-wrap" hx-swap="innerHTML">扫描图库</button>{{end}}
       </div>
       {{end}}
 
-      {{if .D.PairsUnpaired.Heic}} 
-      <div class="mt-4 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-[0.7rem] text-amber-300/90">
-        有 {{.D.PairsUnpaired.Heic}} 个 HEIC 找不到对应视频；{{.D.PairsUnpaired.Video}} 个视频找不到 HEIC（未配对文件不生成任务）
-      </div>
-      {{else if .D.PairsUnpaired.Video}}
-      <div class="mt-4 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-[0.7rem] text-amber-300/90">
-        有 {{.D.PairsUnpaired.Video}} 个视频找不到 HEIC（未配对文件不生成任务）
+      {{if or .D.PairsUnpaired.Heic .D.PairsUnpaired.Video}}
+      <div class="notice notice-amber mt-3">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 8.5v5M12 16.5h.01"/><circle cx="12" cy="12" r="8.5"/></svg>
+        <span>
+          {{if .D.PairsUnpaired.Heic}}{{.D.PairsUnpaired.Heic}} 个 HEIC 找不到对应视频；{{end}}{{if .D.PairsUnpaired.Video}}{{.D.PairsUnpaired.Video}} 个视频找不到 HEIC{{end}}
+          <span class="opacity-70">（未配对文件不生成任务）</span>
+        </span>
       </div>
       {{end}}
     </div>
 
-    <!-- 全局操作 -->
-    <div class="card p-5">
-      <h2 class="text-sm font-medium text-slate-200 mb-3">全局操作</h2>
-      <div class="space-y-2">
-        <button class="btn btn-primary w-full" hx-post="/api/actions/scan" hx-target="#toast-wrap" hx-swap="innerHTML">
-          立即扫描
-        </button>
-
-        <div class="grid grid-cols-2 gap-2">
-          <button class="btn btn-ghost" hx-post="/api/actions/pause" hx-target="#toast-wrap" hx-swap="innerHTML">暂停任务</button>
-          <button class="btn btn-ghost" hx-post="/api/actions/resume" hx-target="#toast-wrap" hx-swap="innerHTML">恢复任务</button>
+    <!-- 侧栏：运行参数 + 高级操作 -->
+    <div class="space-y-3">
+      <div class="panel p-4 sm:p-5">
+        <div class="panel-head mb-3">
+          <h2 class="panel-title">运行参数</h2>
+          <a href="/settings" class="icon-link" title="前往设置">
+            调整
+            <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </a>
+        </div>
+        <div class="space-y-2.5 text-[0.73rem]">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-slate-500">自动扫描</span>
+            <span class="{{if .D.Settings.AutoScan}}text-emerald-300{{else}}text-slate-500{{end}}">
+              {{if .D.Settings.AutoScan}}每 {{.D.Settings.ScanIntervalSec}} 秒{{else}}关闭{{end}}
+            </span>
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-slate-500">MD5 校验</span>
+            <span class="{{if .D.Settings.EnableMD5}}text-emerald-300{{else}}text-slate-500{{end}}">{{if .D.Settings.EnableMD5}}开启{{else}}关闭{{end}}</span>
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-slate-500">JPG 质量</span>
+            <span class="text-slate-300 tabular-nums">{{.D.Settings.JPGQuality}}</span>
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-slate-500">输出内容</span>
+            <span class="text-slate-300">{{if .D.Settings.IncludeUnconverted}}完整图库{{else}}仅转换产物{{end}}</span>
+          </div>
         </div>
 
-        <button class="btn {{if .D.DryRun}}btn-warn{{else}}btn-ghost{{end}} w-full" hx-post="/api/actions/dry-run" hx-target="#toast-wrap" hx-swap="innerHTML">
-          {{if .D.DryRun}}关闭 Dry-Run{{else}}Dry-Run（只配对）{{end}}
-        </button>
+        <div class="divider my-3.5"></div>
 
-        <div class="grid grid-cols-2 gap-2">
-          <button class="btn btn-ghost" hx-post="/api/actions/reset-failed" hx-target="#toast-wrap" hx-swap="innerHTML">清空失败标记</button>
-          <button class="btn btn-ghost" hx-post="/api/actions/retry-failed" hx-target="#toast-wrap" hx-swap="innerHTML">重跑失败项</button>
-        </div>
-
-        {{if .D.Settings.EnableMD5}}
-        <button class="btn btn-ghost w-full" hx-post="/api/actions/deep-verify" hx-target="#toast-wrap" hx-swap="innerHTML">
-          深度 MD5 校验（查 bit rot）
-        </button>
-        {{end}}
-
-        <button class="btn btn-ghost w-full" hx-post="/api/actions/recheck" hx-target="#health-banner" hx-swap="outerHTML">
-          重新检测环境
-        </button>
+        <details class="disclose">
+          <summary>
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+            高级操作
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+          </summary>
+          <div class="disclose-body space-y-1.5">
+            <button class="btn btn-mini {{if .D.DryRun}}btn-warn{{else}}btn-ghost{{end}} btn-block" hx-post="/api/actions/dry-run" hx-target="#toast-wrap" hx-swap="innerHTML">
+              {{if .D.DryRun}}关闭 Dry-Run{{else}}Dry-Run（只配对）{{end}}
+            </button>
+            <div class="grid grid-cols-2 gap-1.5">
+              <button class="btn btn-mini btn-ghost" hx-post="/api/actions/reset-failed" hx-target="#toast-wrap" hx-swap="innerHTML">清空失败标记</button>
+              <button class="btn btn-mini btn-ghost" hx-post="/api/actions/retry-failed" hx-target="#toast-wrap" hx-swap="innerHTML">重跑失败项</button>
+            </div>
+            {{if .D.Settings.EnableMD5}}
+            <button class="btn btn-mini btn-ghost btn-block" hx-post="/api/actions/deep-verify" hx-target="#toast-wrap" hx-swap="innerHTML">深度 MD5 校验</button>
+            {{end}}
+            <button class="btn btn-mini btn-ghost btn-block" hx-post="/api/actions/recheck" hx-target="#health-banner" hx-swap="outerHTML">重新检测环境</button>
+          </div>
+        </details>
       </div>
 
-      <div class="mt-5 pt-4 border-t border-slate-800 space-y-2 text-[0.7rem]">
-        <div class="flex items-center justify-between">
-          <span class="text-slate-500">自动扫描</span>
-          <span class="{{if .D.Settings.AutoScan}}text-emerald-300{{else}}text-slate-500{{end}}">{{if .D.Settings.AutoScan}}开 · 每 {{.D.Settings.ScanIntervalSec}} 秒{{else}}关{{end}}</span>
+      <details class="panel p-0">
+        <summary class="flex cursor-pointer select-none items-center gap-2 px-4 py-3.5">
+          <svg class="h-3.5 w-3.5 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5h6l1.8 2H21v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M3 7.5V5.5a1 1 0 0 1 1-1h4l1.8 2"/></svg>
+          <span class="text-[0.82rem] font-semibold text-slate-200">路径与运行信息</span>
+          <svg class="chev ml-auto h-3.5 w-3.5 text-slate-500 transition-transform duration-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+        </summary>
+        <div class="space-y-3 px-4 pb-4 text-[0.72rem]">
+          <div>
+            <div class="text-slate-500">源目录（只读）</div>
+            <div class="mt-0.5 break-all font-mono text-[0.68rem] text-slate-300">{{.D.Settings.SourceDir}}</div>
+          </div>
+          <div>
+            <div class="text-slate-500">输出目录</div>
+            <div class="mt-0.5 break-all font-mono text-[0.68rem] text-slate-300">{{.D.Settings.OutputDir}}</div>
+            <div class="mt-1 text-[0.66rem] text-slate-500">
+              {{if .D.Settings.IncludeUnconverted}}完整图库模式{{if .D.Settings.MirrorSettleMin}}（观察期 {{.D.Settings.MirrorSettleMin}} 分钟）{{end}}{{else}}仅输出转换产物{{end}}
+            </div>
+          </div>
+          <div class="divider"></div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <div class="text-slate-500">配对总数</div>
+              <div class="mt-0.5 text-slate-300 tabular-nums">{{.D.PairsTotal}} 组</div>
+            </div>
+            <div>
+              <div class="text-slate-500">运行时长</div>
+              <div class="mt-0.5 text-slate-300 tabular-nums">{{fmtDuration .D.UptimeSeconds}}</div>
+            </div>
+          </div>
+          <div>
+            <div class="text-slate-500">上次扫描</div>
+            <div class="mt-0.5 text-slate-300">
+              {{if .D.LastScan}}{{fmtAgo .D.LastScan.FinishedAt}}{{else}}从未{{end}}
+              {{if .D.LastScan}}<span class="text-slate-500">· 文件 {{.D.LastScan.FilesSeen}} · 新增 {{.D.LastScan.PairsNew}} · 告警 {{.D.LastScan.Warnings}}</span>{{end}}
+            </div>
+          </div>
         </div>
-        <div class="flex items-center justify-between">
-          <span class="text-slate-500">MD5 校验</span>
-          <span class="{{if .D.Settings.EnableMD5}}text-emerald-300{{else}}text-slate-500{{end}}">{{if .D.Settings.EnableMD5}}开{{else}}关{{end}}</span>
-        </div>
-        <div class="flex items-center justify-between">
-          <span class="text-slate-500">JPG 质量</span>
-          <span class="text-slate-300 tabular-nums">{{.D.Settings.JPGQuality}}</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 系统状态 -->
-  <div class="card p-5">
-    <h2 class="text-sm font-medium text-slate-200 mb-3">运行信息</h2>
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 text-xs">
-      <div>
-        <div class="text-slate-500">源目录（只读）</div>
-        <div class="mt-1 font-mono text-[0.7rem] text-slate-300 break-all">{{.D.Settings.SourceDir}}</div>
-      </div>
-      <div>
-        <div class="text-slate-500">输出目录</div>
-        <div class="mt-1 font-mono text-[0.7rem] text-slate-300 break-all">{{.D.Settings.OutputDir}}</div>
-        <div class="mt-0.5 text-[0.7rem] text-slate-500">
-          {{if .D.Settings.IncludeUnconverted}}完整图库模式：转换产物 + 已定型文件原样复制{{if .D.Settings.MirrorSettleMin}}（观察期 {{.D.Settings.MirrorSettleMin}} 分钟）{{end}}{{else}}仅输出转换产物{{end}}
-        </div>
-      </div>
-      <div>
-        <div class="text-slate-500">上次扫描</div>
-        <div class="mt-1 text-slate-300">{{if .D.LastScan}}{{fmtAgo .D.LastScan.FinishedAt}}{{else}}从未{{end}}</div>
-        {{if .D.LastScan}}
-        <div class="mt-0.5 text-[0.7rem] text-slate-500">
-          文件 {{.D.LastScan.FilesSeen}} · 新增 {{.D.LastScan.PairsNew}} · 告警 {{.D.LastScan.Warnings}}
-        </div>
-        {{end}}
-      </div>
-      <div>
-        <div class="text-slate-500">配对总数 / 运行时长</div>
-        <div class="mt-1 text-slate-300 tabular-nums">{{.D.PairsTotal}} 组 · {{fmtDuration .D.UptimeSeconds}}</div>
-        <div class="mt-0.5 text-[0.7rem] text-slate-500">
-          {{if .D.Scan.Active}}扫描中 · {{scanPhaseText .D.Scan.Phase}}{{else}}当前未在扫描{{end}}
-        </div>
-      </div>
+      </details>
     </div>
   </div>
 </div>

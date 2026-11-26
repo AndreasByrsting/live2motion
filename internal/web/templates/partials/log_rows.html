@@ -1,13 +1,16 @@
 {{define "log_rows"}}
 {{range .Logs}}
-<div class="log-line flex gap-2 px-3 py-[3px] hover:bg-slate-900/50 border-b border-slate-900/60" data-level="{{.Level}}">
-  <span class="shrink-0 text-slate-600">{{fmtTime .TS}}</span>
-  <span class="shrink-0 w-11 font-semibold {{if eq .Level "error"}}text-rose-400{{else if eq .Level "warn"}}text-amber-400{{else}}text-sky-400{{end}}">{{.Level}}</span>
-  <span class="shrink-0 w-20 text-slate-500 truncate" title="{{.Scope}}">{{.Scope}}</span>
-  <span class="min-w-0 break-all text-slate-300">{{.Message}}</span>
+<div class="log-row log-{{.Level}}" data-level="{{.Level}}">
+  <span class="log-time">{{fmtTime .TS}}</span>
+  <span class="log-level">{{.Level}}</span>
+  <span class="log-scope" title="{{.Scope}}">{{.Scope}}</span>
+  <span class="log-msg">{{.Message}}</span>
 </div>
 {{end}}
 {{if not .Logs}}
-<div id="log-empty" class="px-3 py-6 text-center text-slate-600">暂无日志</div>
+<div id="log-empty" class="empty py-16">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5h8.5L19 10v9.5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1z"/><path d="M13 4.5V10h5.5"/></svg>
+  <div>暂无日志</div>
+</div>
 {{end}}
 {{end}}
